@@ -1,0 +1,749 @@
+openapi: "3.0.1"
+
+info:
+  title: "data4life records"
+  description: "data4life API specification."
+  x-audience: external
+  version: "1.4.0"
+
+servers:
+  - url: "https://api-phdp-sandbox.hpsgc.de"
+    description: "Sandbox environment"
+  - url: "https://api.data4life.care"
+    description: "Production environment"
+
+tags:
+- name: "records"
+  description: "CRUD service for handling user records (i.e. small encrypted structured documents)."
+  externalDocs:
+    description: "Repository"
+    url: "https://github.com/gesundheitscloud/phdp-records"
+
+
+paths:
+
+  /records:
+    description: "Works on records belonging to the user given in the access token (JWT),
+    with ability to page and filter."
+
+    get:
+      deprecated: true
+      tags:
+      - "records"
+      summary: "Deprecated - use /users/{user_id}/records instead"
+      description: "Retrieve a list of records belonging to the user given in the JWT access token (Subject ID).
+      The list is filtered and limited by the given parameters.
+      Records will be returned sorted by date (descending) and createdAt (descending).
+      Attention: If there is a tag scope in the presented OAuth access token, the result will be filtered by these tags."
+      parameters:
+      - in: "query"
+        name: "limit"
+        description: "Maximum number of records to retrieve."
+        required: false
+        schema:
+          type: "integer"
+          minimum: 1
+          default: 20
+        example: 15
+      - in: "query"
+        name: "offset"
+        description: "Number of records to skip when retrieving."
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "start_date"
+        description: "Earliest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be smaller than or equal to end_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "end_date"
+        description: "Latest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be greater than or equal to start_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "tags"
+        description: "Tags for which to return records.
+        These can be combined with a comma (,) for AND gating."
+        required: false
+        schema:
+          type: "string"
+        example: "encryptedTag1,encryptedTag2"
+      responses:
+        200:
+          description: "Success"
+          headers:
+            "X-Total-Count":
+              description: "The total number of records matching the query.
+              If a limit is set, this number still reflects the number of all records
+              matching the query although only a subset (the limit) is returned."
+              schema:
+                type: "integer"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  $ref: "#/components/schemas/RecordResponse"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:r, tag:xxx]
+
+    head:
+      deprecated: true
+      tags:
+      - "records"
+      summary: "Deprecated - use /users/{user_id}/records instead"
+      description: "Retrieve the amount of user records belonging to the user given in the JWT access token (Subject ID).
+      The list is filtered and limited by the given parameters.
+      Attention: If there is a tag scope in the presented OAuth access token, the result will be filtered by these tags"
+      parameters:
+      - in: "query"
+        name: "limit"
+        deprecated: true
+        description: "Value is ignored"
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "offset"
+        deprecated: true
+        description: "Value is ignored"
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "start_date"
+        description: "Earliest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be smaller than or equal to end_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "end_date"
+        description: "Latest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be greater than or equal to start_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "tags"
+        description: "Tags for which to return records.
+        These can be combined with a comma (,) for AND gating."
+        required: false
+        schema:
+          type: "string"
+        example: "encryptedTag1,encryptedTag2"
+      responses:
+        200:
+          description: "Success"
+          headers:
+            "X-Total-Count":
+              description: "The total number of records matching the query."
+              schema:
+                type: "integer"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:r, tag:xxx]
+
+  /users/{user_id}/records:
+    description: "Works on records belonging to the given user"
+
+    get:
+      tags:
+      - "records"
+      summary: "Retrieve a list of user records"
+      description: "Retrieve a list of records filtered and limited by the given parameters.
+      Records will be returned sorted by date (descending) and createdAt (descending).
+      Attention: If there is a tag scope in the presented OAuth access token, the result will be filtered by these tags."
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "query"
+        name: "limit"
+        description: "Maximum number of records to retrieve."
+        required: false
+        schema:
+          type: "integer"
+          minimum: 1
+          default: 20
+        example: 15
+      - in: "query"
+        name: "offset"
+        description: "Number of records to skip when retrieving."
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "start_date"
+        description: "Earliest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be smaller than or equal to end_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "end_date"
+        description: "Latest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be greater than or equal to start_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "tags"
+        description: "Tags (encrypted) for which to return records. Multiple tags can be separated
+        by comma for AND gating. Tags can be grouped together using round brackets for
+        creating groups of OR conditions."
+        required: false
+        schema:
+          type: "string"
+        examples:
+          simple:
+            value: "tag1,tag2,tag3"
+            summary: "Meaning: tag1 AND tag2 AND tag3"
+          grouping:
+            value: "(tag1,tag2),tag3"
+            summary: "Meaning: (tag1 OR tag2) AND tag3"
+          all_grouped:
+            value: "(tag1,tag2,tag3)"
+            summary: "Meaning: tag1 OR tag2 OR tag3"
+      - in: "query"
+        name: "exclude_tags"
+        description: "Tags (encrypted) for which to return records. Multiple tags can be separated
+        by comma for OR gating. Tags can be grouped together using round brackets for
+        creating groups of AND conditions."
+        required: false
+        schema:
+          type: "string"
+        examples:
+          simple:
+            value: "tag1,tag2,tag3"
+            summary: "Meaning: NOT (tag1 OR tag2 OR tag3), i.e. records not having any of these tags"
+          grouping:
+            value: "(tag1,tag2),tag3"
+            summary: "Meaning: NOT((tag1 AND tag2) OR tag3), i.e. records not having both tag3 and any of [tag1,tag2]"
+          all_grouped:
+            value: "(tag1,tag2,tag3)"
+            summary: "Meaning: tag1 AND tag2 AND tag3, i.e. records not having all of [tag1,tag2,tag3]"
+      - in: "query"
+        name: "include_deleted"
+        description: "Flag allowing to include deleted records in the result. Defaults to false."
+        required: false
+        schema:
+          type: "boolean"
+        example: "true"
+      - in: "query"
+        name: "start_updated_date"
+        description: "Optional start timestamp for filtering the records by updated date (RFC3339 format in UTC)."
+        required: false
+        schema:
+          type: string
+          format: date-time
+        example: "2020-02-04T11:34:02.278Z"
+      - in: "query"
+        name: "end_updated_date"
+        description: "Optional end timestamp for filtering the records by updated date (RFC3339 format in UTC)."
+        required: false
+        schema:
+          type: string
+          format: date-time
+        example: "2020-02-04T11:34:02.278Z"
+      responses:
+        200:
+          description: "Success"
+          headers:
+            "X-Total-Count":
+              description: "The total number of records matching the query.
+              If a limit is set, this number still reflects the number of all records
+              matching the query although only a subset (the limit) is returned."
+              schema:
+                type: "integer"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  $ref: "#/components/schemas/RecordResponse"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:r, tag:xxx]
+
+    head:
+      tags:
+      - "records"
+      summary: "Retrieve the amount of user records"
+      description: "Retrieve the amount of user records filtered by the given parameters.
+      Attention: If there is a tag scope in the presented OAuth access token, the result will be filtered by these tags"
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "query"
+        name: "limit"
+        deprecated: true
+        description: "Value is ignored"
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "offset"
+        deprecated: true
+        description: "Value is ignored"
+        required: false
+        schema:
+          type: "integer"
+          minimum: 0
+          default: 0
+        example: 0
+      - in: "query"
+        name: "start_date"
+        description: "Earliest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be smaller than or equal to end_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "end_date"
+        description: "Latest date for which to return records.
+        Date is expected in ISO 8601 format (YYYY-MM-DD).
+        Filtering is done on the record's date field.
+        Must be greater than or equal to start_date."
+        required: false
+        schema:
+          type: "string"
+          format: "date"
+        example: "2020-02-02"
+      - in: "query"
+        name: "tags"
+        description: "Tags for which to return records.
+        These can be combined with a comma (,) for AND gating."
+        required: false
+        schema:
+          type: "string"
+        example: "encryptedTag1,encryptedTag2"
+      - in: "query"
+        name: "include_deleted"
+        description: "Flag allowing to include deleted records in the result. Defaults to false."
+        required: false
+        schema:
+          type: "boolean"
+        example: "true"
+      - in: "query"
+        name: "start_updated_date"
+        description: "Optional start timestamp for filtering the records by updated date (RFC3339 format in UTC)."
+        required: false
+        schema:
+          type: string
+          format: date-time
+        example: "2020-02-04T11:34:02.278Z"
+      - in: "query"
+        name: "end_updated_date"
+        description: "Optional end timestamp for filtering the records by updated date (RFC3339 format in UTC)."
+        required: false
+        schema:
+          type: string
+          format: date-time
+        example: "2020-02-04T11:34:02.278Z"
+      responses:
+        200:
+          description: "Success"
+          headers:
+            "X-Total-Count":
+              description: "The total number of records matching the query."
+              schema:
+                type: "integer"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:r, tag:xxx]
+
+    post:
+      tags:
+      - "records"
+      summary: "Upload a new record."
+      description: "Upload a new record for the given user.
+      Attention: If there is a tag scope in the presented OAuth access token, the record must have a superset of these tags"
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordRequest"
+      responses:
+        201:
+          description: "Created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        403:
+          description: "Forbidden - if the record does not have a superset of the tags which are presented by the OAuth tag scope"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:a, rec:w, tag:xxx]
+
+  /users/{user_id}/records/{record_id}:
+    description: "Actions on individual records."
+
+    get:
+      tags:
+      - "records"
+      summary: "Retrieve a specific record by ID."
+      description: "Get the record specified by user_id and record_id."
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "path"
+        name: "record_id"
+        description: "The unique ID of the record"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      responses:
+        200:
+          description: "Success"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        403:
+          description: "Forbidden - if the record does not have a superset of the tags given by the OAuth scope"
+        404:
+          description: "Not Found - if the record does not exist"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:r, tag:xxx]
+
+    put:
+      tags:
+      - "records"
+      summary: "Update a given record."
+      description: "Update the record specified by user_id and record_id.
+      The service will not override the record but rather create a new version with updated
+      fields and higher version number. The old record gets a status Archived and cannot be
+      retrieved by this API at the moment."
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "path"
+        name: "record_id"
+        description: "The unique ID of the record"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordRequest"
+      responses:
+        200:
+          description: "Success"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordResponse"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        403:
+          description: "Forbidden - if the record does not have a superset of the tags given by the OAuth scope"
+        404:
+          description: "Not Found - if the record does not exist"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:w, tag:xxx]
+
+    delete:
+      tags:
+      - "records"
+      summary: "Delete a given record."
+      description: "Delete the record specified by user_id and record_id.
+      This is a soft delete. Deleted records are just marked as such but not physically deleted."
+      parameters:
+      - in: "path"
+        name: "user_id"
+        description: "The unique ID of the user. Must be the same as the user given in the JWT access token (Subject ID)"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "path"
+        name: "record_id"
+        description: "The unique ID of the record"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      responses:
+        204:
+          description: "Success"
+        400:
+          description: "Bad Request"
+        401:
+          description: "Unauthorized"
+        403:
+          description: "Forbidden - if the record does not have a superset of the tags given by the OAuth scope"
+        404:
+          description: "Not Found - if the record does not exist"
+        500:
+          description: "Internal Server Error"
+      security:
+      - OAuth2: [rec:w, tag:xxx]
+
+components:
+  schemas:
+
+    RecordResponse:
+      type: object
+      properties:
+        user_id:
+          description: "Unique identifier of the user the record belongs to"
+          type: string
+          format: uuid
+        record_id:
+          description: "Unique identifier for the record"
+          type: string
+          format: uuid
+        version:
+          description: "Sequential version number"
+          type: integer
+        model_version:
+          description: "Version of the data model used in this record"
+          type: integer
+        encrypted_body:
+          description: "encrypted text (string, required) - Encrypted body,
+          FHIR JSON for medical data"
+          type: string
+          format: base64
+        encrypted_tags:
+          description: "Space-separated encrypted tags for the record"
+          type: array
+          items:
+            type: string
+            format: base64
+        encrypted_key:
+          description: "Encrypted data key in GCKey format. Decrypts the body"
+          type: string
+          format: base64
+        attachment_key:
+          description: "Optional encrypted attachment key in GCKey format.
+          Decrypts the attachments"
+          type: string
+          format: base64
+        common_key_id:
+          description: "Identifier for the common key used to encrypt data and attachment keys."
+          type: string
+          format: uuid
+        date:
+          description: "Date of occurrence of the record."
+          type: string
+          format: date
+        status:
+          description: 'Status of record ("Active" or "Pending"). For now, only "Active" is allowed.'
+          type: string
+          enum:
+            - "Active"
+            - "Pending"
+            - "Deleted"
+        createdAt:
+          deprecated: true
+          description: "Timestamp at which the record was created or updated (format 2006-01-02T15:04:05.102 in UTC - not standard-compliant because of missing trailing Z!). Better use 'created' and 'updated'"
+          type: string
+          format: date-time
+        created:
+          description: "Timestamp at which the record was created (RFC3339 format in UTC)"
+          type: string
+          format: date-time
+        updated:
+          description: "Timestamp at which the record was updated (RFC3339 format in UTC)"
+          type: string
+          format: date-time
+      example:
+        user_id: 33c9085b-122a-4ceb-b4d8-f51dfbceb77c
+        record_id: 06598d6f-9b8a-4cbd-ba97-aa03868e2267
+        version: 4
+        model_version: 1
+        encrypted_body: "a0XH88GX4HMgt0V5ILSuK5gkwrWQ8e2SnV2LdomVVmC2DYYvBNwqXGa4yfrxPjc0xtnxvkVMNNByqUnL20eJeWdlKaCl+5RnBES0b9M3kxXSMgS2IGHMDoXQmqGr8qwwBq/y+jTTrvdLy5nqNpszYzvrNerGZ9UvKoUUbuo20Le72XgDf6flbee5jBsSMGxRR05hzqOCFCBZxde7bx+JwyhePweyHo6Dww1mISajPNbc71bneI6tFjE3CllIPW3RPZTpzqrfUokdTkL4hP9pCBWVtJI8scfg2m3U2MR712YEUo7op7Lvzq3fXr+oXRPXYEUFc6TO0bSYstEPfeskqWHw5U/a2kowTnI0Puhh1s1UVcXhpFv0mJZqwtaaxm4N5xoIk3G5smOHN8hR7bWRWw0jUjoTL2k59WM+rkOUaDSYtxMdyCwGClDTO6QJfO/RDxIjbv3f13mFRbtqRLBjD/mf+dxykde5zHMMX8wikjcW8cHc+asYyqdaSJ7k0DcYjs8BPIFwXYQXbQmDqhyk3+uCgHIp5vkcZHDU6dPtolHiwucujq3fRYCJSRILTUEQDa8ch8rqBWYVJcx57LT1IZZZJ/tX5LbMZEX/kd7nf/IzOH0sTtdFBdzn/Btc4aXunnHotEEgiyBRpH215164kJWBwQuwXW6ww0Bi2jI2VkyULi57YOixD7bDTcxIcwVrqDFKkEuNfNLFlGyKRgdx+sbdCx9TNhGQi2ZXOhtvaIbOeEkuH1Egdzxaq1Q9kqZIF1D13JdPC17T1pQFt8ENPglxOEQIqPx2M2wONC1yvHCP9HVpTyze5tQ3TerJcJQw7OXaAAeUeBu2K04DBVIizBQsYZ8qegtoIb84/VVAjeTctv89dAycj83US7mT2uE/KwzmNS2BEjhvvLtHCfvySkQ55/t4enGUtquAnkQC4fq2bjue5y+L7eipQvYk1plcnRiveX8qtOn2cH27BbYvk4Y7p/AvfsiZDU19UrGESTcSgnry/T6GHt6O+5tLuQVmoN2hg/xZenngme6wF9FXe2bTiT5J6ujrOUwF6r1kx7BtwotS5v1imPzGrRCgDjtaLSh8GL9Qs7FUb5ns6rM81r08cmz0aHY2AnX2UPPIeHmpLFGtVafFVZcLDuEXZHHs5Ukxlom9LY4rex71AOdZneViC0SnTDA32yMOObvyZddUdtsvMtL3hmSJ237LlN65kVVdqQuL2HrroLreCJoVk73NZwV+2YIXLrWOK851Zb7sknObghs3/pT9WF9lSkUqeihb0/PYGjxYR+ZZE0YL1bXrZXMdkbq3OPKoM1/VbKb9fL46DME4gkvIF4cfV5pq9fvBnePQRN+eUmfo8TJXkvM+0zn3PBHWpoqlZvmoJ8Gd7vlBrb9f5VGCV0jJS1AtIw6D+rPVgFw9Id4h+Uw3+3dnRwz4ib51PfsXwFixuT2Po6KQ+kAaX87GSS13bCogL3oeZOT/n+vfDu6snGNAfANEs2UdQl+nSEWrbvutrj4A81DR8Ad5ySyDSrNaKG1U4cte8Gku1t9SB3kimPwNTgt0elpPIJ0j9qNXtVQjYyR9gf1iptM51sFYri0Hw8t08PhGhGitLwBYkMcwhORDTUUvmzr+b4P5dR2wty9ut7Tn2FTddwKOQM1eM+4cMol7xLfrNLJipoIJfzFDe3xCz5aQXv/YJAFjEIHxGrY6Pa60gkMbd4rU5yDMxlPgGg+L9huaSBmUCyv2+xQggxGLrO/52gD564kVXiPsCfyiMwlVNcMq05ALO6OXGxKtugyGJcjHc8iq/Potcn+6xG8COfSIffA6Ox0w6pmaqHHFlKTz9hUqDZnWBaKsP6Sccesmfh0m+tZDVfUp0B6NsIHgX/PgbJUdRGPWVTj0GIHNuFOvKkFZ1citj4YY"
+        encrypted_tags: ["8EUd705jHwa2VN+v22EN0ipKyVOjzxJMKD49ln+NFQA=","M7EmMp5ta+/Lr4e3i+vJQ17JgCOLc+ZBG5euDCu/FBBOvdLJUhbTYeS3dluJmv4bkMBQ0B7RvSKPSALdBiiLCQ==","8EUd705jHwa2VN+v22EN0tGVAKmhEPTLQA5QW0QCIgM=","8EUd705jHwa2VN+v22EN0nD1+9W9BTqXiP6HOJEWlNI=","uDXjoz1bhcnbzIquO+cKFXJj8xcmkZoj+wYC+QDCYFg=","4NQkOMiROlWVuiso7kVgmZjy/qFq3KkQPPBpA1ufYYKkbsFQVMau+Y89DSjAYX/EHpvRePMb4pqoNQLBwH3clA==","F9v0alp2RTdRlxJLkHkoD/6Tc419zR869kYX9MCFyPw="]
+        encrypted_key: "cOA7Qp/yjoN7i0lJbPZnOncSrDp2VCnYsH/6WExJlCkA1t2lMTOcs5ae642JPS9e8oydIvImtfaTjS3iNOUfXlMY/GuR6hY6naRuts/2+qa96JqClCoACg9dtHma5ybWKw=="
+        attachment_key: "lnppCobwuOC8Tc2SjaK5z14n6WPnlU4+C9rwOkFpdj2Amsa05DHoxQc97nez4uiUCj24x0NnqdYBXcAOXOGjK7Q6Ro/o8eYTAzSaGke0KS6ITFwxkpihmkxg3eyoj2ksnw=="
+        common_key_id: "00000000-0000-0000-0000-000000000000"
+        date: "2020-02-02"
+        status: "Active"
+        createdAt: "2020-02-03T11:34:02.278"
+        created: "2020-02-02T10:23:00.293Z"
+        updated: "2020-02-03T11:34:02.278Z"
+
+    RecordRequest:
+      type: "object"
+      properties:
+        encrypted_body:
+          description: "encrypted text (string, required) - Encrypted body,
+          FHIR JSON for medical data"
+          type: string
+          format: base64
+        encrypted_key:
+          description: "Encrypted data key in GCKey format. Decrypts the body"
+          type: string
+          format: base64
+        attachment_key:
+          description: "Optional encrypted attachment key in GCKey format.
+          Decrypts the attachments"
+          type: string
+          format: base64
+        date:
+          description: "The (potentially custom) date of the record for display and sort purposes"
+          type: string
+          format: date
+        encrypted_tags:
+          description: "The encrypted tags that are part of the record metadata"
+          type: array
+          items:
+            type: string
+            format: base64
+        model_version:
+          description: "Version of the data model used in this record"
+          default: 1
+          type: integer
+        common_key_id:
+          description: "Identifier for the common key used to encrypt data and attachment keys."
+          default: "00000000-0000-0000-0000-000000000000"
+          type: string
+          format: uuid
+      required:
+        - encrypted_body
+        - encrypted_key
+        - encrypted_tags
+        - date
+      example:
+        model_version: 1
+        encrypted_body: "a0XH88GX4HMgt0V5ILSuK5gkwrWQ8e2SnV2LdomVVmC2DYYvBNwqXGa4yfrxPjc0xtnxvkVMNNByqUnL20eJeWdlKaCl+5RnBES0b9M3kxXSMgS2IGHMDoXQmqGr8qwwBq/y+jTTrvdLy5nqNpszYzvrNerGZ9UvKoUUbuo20Le72XgDf6flbee5jBsSMGxRR05hzqOCFCBZxde7bx+JwyhePweyHo6Dww1mISajPNbc71bneI6tFjE3CllIPW3RPZTpzqrfUokdTkL4hP9pCBWVtJI8scfg2m3U2MR712YEUo7op7Lvzq3fXr+oXRPXYEUFc6TO0bSYstEPfeskqWHw5U/a2kowTnI0Puhh1s1UVcXhpFv0mJZqwtaaxm4N5xoIk3G5smOHN8hR7bWRWw0jUjoTL2k59WM+rkOUaDSYtxMdyCwGClDTO6QJfO/RDxIjbv3f13mFRbtqRLBjD/mf+dxykde5zHMMX8wikjcW8cHc+asYyqdaSJ7k0DcYjs8BPIFwXYQXbQmDqhyk3+uCgHIp5vkcZHDU6dPtolHiwucujq3fRYCJSRILTUEQDa8ch8rqBWYVJcx57LT1IZZZJ/tX5LbMZEX/kd7nf/IzOH0sTtdFBdzn/Btc4aXunnHotEEgiyBRpH215164kJWBwQuwXW6ww0Bi2jI2VkyULi57YOixD7bDTcxIcwVrqDFKkEuNfNLFlGyKRgdx+sbdCx9TNhGQi2ZXOhtvaIbOeEkuH1Egdzxaq1Q9kqZIF1D13JdPC17T1pQFt8ENPglxOEQIqPx2M2wONC1yvHCP9HVpTyze5tQ3TerJcJQw7OXaAAeUeBu2K04DBVIizBQsYZ8qegtoIb84/VVAjeTctv89dAycj83US7mT2uE/KwzmNS2BEjhvvLtHCfvySkQ55/t4enGUtquAnkQC4fq2bjue5y+L7eipQvYk1plcnRiveX8qtOn2cH27BbYvk4Y7p/AvfsiZDU19UrGESTcSgnry/T6GHt6O+5tLuQVmoN2hg/xZenngme6wF9FXe2bTiT5J6ujrOUwF6r1kx7BtwotS5v1imPzGrRCgDjtaLSh8GL9Qs7FUb5ns6rM81r08cmz0aHY2AnX2UPPIeHmpLFGtVafFVZcLDuEXZHHs5Ukxlom9LY4rex71AOdZneViC0SnTDA32yMOObvyZddUdtsvMtL3hmSJ237LlN65kVVdqQuL2HrroLreCJoVk73NZwV+2YIXLrWOK851Zb7sknObghs3/pT9WF9lSkUqeihb0/PYGjxYR+ZZE0YL1bXrZXMdkbq3OPKoM1/VbKb9fL46DME4gkvIF4cfV5pq9fvBnePQRN+eUmfo8TJXkvM+0zn3PBHWpoqlZvmoJ8Gd7vlBrb9f5VGCV0jJS1AtIw6D+rPVgFw9Id4h+Uw3+3dnRwz4ib51PfsXwFixuT2Po6KQ+kAaX87GSS13bCogL3oeZOT/n+vfDu6snGNAfANEs2UdQl+nSEWrbvutrj4A81DR8Ad5ySyDSrNaKG1U4cte8Gku1t9SB3kimPwNTgt0elpPIJ0j9qNXtVQjYyR9gf1iptM51sFYri0Hw8t08PhGhGitLwBYkMcwhORDTUUvmzr+b4P5dR2wty9ut7Tn2FTddwKOQM1eM+4cMol7xLfrNLJipoIJfzFDe3xCz5aQXv/YJAFjEIHxGrY6Pa60gkMbd4rU5yDMxlPgGg+L9huaSBmUCyv2+xQggxGLrO/52gD564kVXiPsCfyiMwlVNcMq05ALO6OXGxKtugyGJcjHc8iq/Potcn+6xG8COfSIffA6Ox0w6pmaqHHFlKTz9hUqDZnWBaKsP6Sccesmfh0m+tZDVfUp0B6NsIHgX/PgbJUdRGPWVTj0GIHNuFOvKkFZ1citj4YY"
+        encrypted_tags: ["8EUd705jHwa2VN+v22EN0ipKyVOjzxJMKD49ln+NFQA=","M7EmMp5ta+/Lr4e3i+vJQ17JgCOLc+ZBG5euDCu/FBBOvdLJUhbTYeS3dluJmv4bkMBQ0B7RvSKPSALdBiiLCQ==","8EUd705jHwa2VN+v22EN0tGVAKmhEPTLQA5QW0QCIgM=","8EUd705jHwa2VN+v22EN0nD1+9W9BTqXiP6HOJEWlNI=","uDXjoz1bhcnbzIquO+cKFXJj8xcmkZoj+wYC+QDCYFg=","4NQkOMiROlWVuiso7kVgmZjy/qFq3KkQPPBpA1ufYYKkbsFQVMau+Y89DSjAYX/EHpvRePMb4pqoNQLBwH3clA==","F9v0alp2RTdRlxJLkHkoD/6Tc419zR869kYX9MCFyPw="]
+        encrypted_key: "cOA7Qp/yjoN7i0lJbPZnOncSrDp2VCnYsH/6WExJlCkA1t2lMTOcs5ae642JPS9e8oydIvImtfaTjS3iNOUfXlMY/GuR6hY6naRuts/2+qa96JqClCoACg9dtHma5ybWKw=="
+        attachment_key: "lnppCobwuOC8Tc2SjaK5z14n6WPnlU4+C9rwOkFpdj2Amsa05DHoxQc97nez4uiUCj24x0NnqdYBXcAOXOGjK7Q6Ro/o8eYTAzSaGke0KS6ITFwxkpihmkxg3eyoj2ksnw=="
+        common_key_id: "00000000-0000-0000-0000-000000000000"
+        date: "2020-02-02"
+        status: "Active"
+
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          refreshUrl: /oauth/token
+          scopes:
+            rec:r: Read `sub` records
+            rec:w: Change `sub` records
+            tag:xxx: if this scope is present, records and attachments MUST be filtered matching this tag.
+
+externalDocs:
+  description: "Documentation repository"
+  url: "https://github.com/gesundheitscloud/dev-docs"

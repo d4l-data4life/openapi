@@ -1,0 +1,716 @@
+openapi: "3.0.1"
+
+info:
+  title: "data4life Cryptographic Key Management"
+  description: "data4life API specification."
+  x-audience: external
+  version: "1.0.0"
+
+servers:
+  - url: "https://api-phdp-sandbox.hpsgc.de"
+    description: "Sandbox environment"
+  - url: "https://api.data4life.care"
+    description: "Production environment"
+
+tags:
+  - name: "keymgmt"
+    description: "Service managing cryptographic key material"
+    externalDocs:
+      description: "Repository"
+      url: "https://github.com/gesundheitscloud/phdp-keymgmt"
+
+paths:
+  /keys/api/v1/keys/users/{user_id}:
+    get:
+      tags:
+        - user-keys
+      description: >
+        Returns the [dU]kF_M,
+        [
+          [kC_1]EU, [kC_2]EU, ..., [kC_n]EU
+        ] and
+        [kT]kC_n of a user.
+        This is used during the login to get the cryptographic keys. The cryptographic keys need to
+        be re-encrypted with the public key of the target app.
+
+        The keys that should be returned can be filteres by query parameters. By default the tag
+        encryption key (tek) and the public keys of grantees of a user is not returned, but it can
+        be targeted in the query parameter list.
+
+        An examplary query list looks like this `?q=cks&q=tek&q=pubkey`.
+      operationId: getKeys
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to retrieve
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: q
+          description: >
+            Flag selecting the keys that should be returned:
+              * `cup` - is the CUP ([dU]kF_M) of a user. It will also return the salt ([dU]kF_M_S)
+                        necessary to decrypt the CUP.
+              * `cks` - is a list of all the CommonKeys available ([kC_1]EU, ..., [kC_n]EU). It
+                        will also return the ID of the currently used CommonKey.
+              * `tek` - is the TagEncryptionKey ([kT]kC_n) that is used to encrypt the tags of a record.
+              * `pubkey` - is the PublicKey of a user (EU).
+              * `pubkeys` - are the PublicKeys of grantees of a user (EA_1, ..., EA_n). Grantees
+                            can be apps or other users.
+          schema:
+            type: string
+            enum:
+              - cup
+              - cks
+              - tek
+              - pubkey
+              - pubkeys
+      security:
+        - JWTAuth: ["ku:r"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeysResBody"
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404": # Not Found
+          description: No keys found for user
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags:
+        - user-keys
+      description: >
+        Sets the [dU]kF_M, [ [kC_1]EU, [kC_2]EU, ..., [kC_n]EU ] and [kT]kC_n of a user.
+        This is used during the registration. It sets the cryptographic keys for a user. Those are
+        necessary to enable E2EE.
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to store
+          required: true
+          schema:
+            type: string
+            format: uuid
+      operationId: postKeys
+      security:
+        - JWTAuth: ["ku:a"]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeysPostReqBody"
+      responses:
+        "201": # Created
+          description: Successfully registered the user.
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409": # Status Conflict
+          description: Is returned, when the keys are already set.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags:
+        - user-keys
+      description: >
+        Delete all key material for the given user
+      operationId: deleteKeys
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to delete
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      responses:
+        "204": # No Content - deleted
+          description: Successfully deleted the user's key material.
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404": # Not Found
+          description: No keys found for user
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /keys/api/v1/keys/users/{user_id}/apps/{app_id}:
+    post:
+      tags:
+        - app-keys
+      description: |
+        Adds key material for a new app with the given app_id.
+        Sets the public key of the app (EA) and the common keys encrypted
+        with the public key of the app ([kC_1]EA, [kC_2]EA, ..., [kC_n]EA]).
+        This endpoint is currently used for so-called privileged clients (PC).
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to store
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: app_id
+          description: The ID of the app for which to create the key material
+          required: true
+          schema:
+            type: string
+            format: uuid
+      operationId: postApp
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeysPostAppReqBody"
+      responses:
+        "204": # Created
+          description: Successfully created the app keys
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404": # Not found
+          description: User is unknown
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409": # Status Conflict
+          description: Is returned, when keys for this app are already set.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      tags:
+        - app-keys
+      description: |
+        Adds key material for a new app with a new common key and updates (patches) the key material of existing apps with this new common key.
+
+        Sets the public key of the app (EA), the new common key encrypted with the public key ([kC_new]EA) and the tag encryption key encrypted with this common key ([kT]kC_new).
+        The new common key is appended to the common key chains of existing apps via the common_key_appends. The new common key is encrypted with
+        the public keys of the existing apps ([kC_new]EA_1, [kC_new]EA_2, ..., [kC_new]EA_n) of the user. It must contain the new common key encrypted with the public key of
+        main app ID (i.e. the app ID with uuid.Nil).
+
+        When successful, the ID of the newly created common key is returned.
+
+        This endpoint is currently used for so-called underprivileged clients (UPC).
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to store
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: app_id
+          description: The ID of the app for which to create the key material
+          required: true
+          schema:
+            type: string
+            format: uuid
+      operationId: patchApp
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeysPatchAppReqBody"
+      responses:
+        "204": # Created
+          description: Successfully added key material and patched the apps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommonKeyIdRespBody"
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409": # Status Conflict
+          description: Is returned, when this app is already present.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /keys/api/v1/keys/users/{user_id}/apps:
+    patch:
+      tags:
+        - app-keys
+      description: |
+        Patches multiple apps with a new active common key (aka "common key rotation").
+
+        Sets a new common key (kC_new) as the active common key (kC_active) for multiple apps. It must contain an entry for the main app
+        (i.e. the app with appID == uuid.Nil). The common keys must be encrypted with the respective public keys of the apps
+        ([kC_new]EA_1, [kC_new]EA_2, ..., [kC_new]EA_n). It also updates the tag encryption key which is encrypted with the new common key
+        ([kT]kC_active) for all apps given.
+
+        When successful, the ID of the newly created common key is returned.
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose key material to patch
+          required: true
+          schema:
+            type: string
+            format: uuid
+      operationId: patchApps
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeysPatchAppsReqBody"
+      responses:
+        "200": # OK
+          description: Successfully patched the apps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommonKeyIdRespBody"
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409": # Status Conflict
+          description: Is returned, when the keys are already set.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /keys/api/v1/keys/users/{user_id}/privatekey:
+    put:
+      tags:
+        - user-keys
+      description: >
+        Enables the user to set a new CUP ([dU]kF_M).
+        As this is a state changing request, a CSRF token is required in the body. The CSRF token
+        is returned on authentication (login / registration).
+      operationId: putPrivateKey
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose keys to update
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      requestBody:
+        description: >
+          The user's CUP ([dU]kF_M), encrypted with the main key, which is derived from the
+          main key passphrase.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeysPutPrivateKeyReqBody"
+      responses:
+        "204": # Created
+          description: Successfully set a new CUP ([dU]kF_M).
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401": # Unauthorized
+          description: Not authenticated
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404": # Not Found
+          description: No keys found for user
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    ErrorResponse:
+      type: "object"
+      properties:
+        errors:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ErrorItem"
+
+    ErrorItem:
+      type: "object"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        trace_id:
+          type: "string"
+        message:
+          type: "string"
+        details:
+          oneOf:
+            - $ref: "#/components/schemas/ParameterDetails" # for error code PARAMETER_INVALID or PARAMETER_MISSING
+      required:
+        - code
+
+    ErrorCode:
+      type: string
+      x-extensible-enum:
+        - SESSION_INVALID
+        - INTERNAL_ERROR
+        - PARAMETER_MISSING
+        - PARAMETER_INVALID
+        - USER_NOT_OWNER
+        - BODY_INVALID
+        - USER_NOT_FOUND
+        - KEYS_NOT_FOUND
+        - KEYS_ALREADY_EXIST
+
+    ParameterDetails:
+      type: object
+      properties:
+        parameter_name:
+          description: the name of the parameter that is invalid or missing
+          type: string
+      required:
+        - parameter_name
+
+    CommonKeyWithId:
+      type: object
+      properties:
+        common_key_id:
+          description: The id of the common key
+          type: string
+          format: uuid
+        common_key:
+          description: The encrypted common key belonging to the user
+          type: string
+          format: base64
+
+    PublicKeyWithID:
+      type: object
+      properties:
+        id:
+          description: The key of the map. Represents the ID of a permission given by the granter.
+          type: string
+          format: uuid
+        public_key:
+          description: The value of the map. The public key of the grantees of a permission.
+          type: string
+          format: base64
+
+    KeysResBody:
+      type: object
+      properties:
+        cup:
+          description: >
+            [dU]kF_M - The user's private key encrypted with the salted password-derived-key (PBKDF2).
+          type: string
+          format: base64
+        kdf_salt:
+          description: "kF_M_S - Salt to generate password-derived-key (PBKDF2)."
+          type: string
+          format: base64
+        common_key_id:
+          description: The ID of the active common key
+          type: string
+          format: uuid
+        common_keys:
+          description: "[id_1:[kC_1]EU, ..., id_n: [kC_n]EU] - A map of common key id keys to common key values."
+          type: array
+          items:
+            $ref: "#/components/schemas/CommonKeyWithId"
+        tag_encryption_key:
+          description: "[kT]kC_n - The Tag Encryption Key of a user encrypted with its common key."
+          type: string
+          format: base64
+        public_key:
+          description: EU - The public key of the user.
+          type: string
+          format: base64
+        apps_public_keys:
+          description: "[id_0:EU, id_1:EA_1, ..., id_n: EA_n] - A map of public keys bound to permissions given by id."
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicKeyWithID"
+      required:
+        - cup
+        - kdf_salt
+        - common_key_id
+        - common_keys
+
+    KeysPostReqBody:
+      type: object
+      properties:
+        cup:
+          description: "[dU]kF_M - The user's private key encrypted with the salted password-derived-key (PBKDF2)."
+          type: string
+          format: base64
+        kdf_salt:
+          description: "kF_M_S - Salt to generate password-derived-key (PBKDF2)."
+          type: string
+          format: base64
+        common_key:
+          description: The user's active common key
+          type: string
+          format: base64
+        tag_encryption_key:
+          description: "[kT]kC_n - The Tag Encryption Key of a user encrypted with its common key."
+          type: string
+          format: base64
+        public_key:
+          description: EU - Public key of the user.
+          type: string
+          format: base64
+      required:
+        - cup
+        - kdf_salt
+        - common_key
+        - tag_encryption_key
+        - public_key
+
+    KeysPutPrivateKeyReqBody:
+      type: object
+      properties:
+        cup:
+          description: "[dU]kF_M - The user's private key encrypted with the salted password-derived-key (PBKDF2)."
+          type: string
+          format: base64
+        kdf_salt:
+          description: "kF_M_S - Salt to generate password-derived-key (PBKDF2)."
+          type: string
+          format: base64
+      required:
+        - cup
+        - kdf_salt
+
+    KeysPostAppReqBody:
+      type: object
+      properties:
+        public_key:
+          description: EA - Public key of the app
+          type: string
+          format: base64
+        common_keys:
+          description: The common keys encrypted with the public key of the app
+          type: array
+          items:
+            $ref: "#/components/schemas/CommonKeyWithId"
+      required:
+        - public_key
+        - common_keys
+
+    KeysPatchAppReqBody:
+      type: object
+      properties:
+        public_key:
+          description: EA - Public key of the new app
+          type: string
+          format: base64
+        common_key:
+          description: The new common key encrypted with the public key of the app ([kC_new]EA)
+          type: string
+          format: base64
+        tek:
+          description: The Tag Encryption Key encrypted with the common key ([kT]kC_new)
+          type: string
+          format: base64
+        common_key_appends:
+          description: The common_key_appends is a list of common key / app id tuples, so it is known which common key container should be updated with the new common key
+          type: array
+          items:
+            type: object
+            properties:
+              app_id:
+                description: The ID of the "app" to be updated
+                type: string
+                format: uuid
+              common_key:
+                description: The common key in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+                type: string
+                format: base64
+            required:
+              - app_id
+              - common_key
+      required:
+        - public_key
+        - common_key
+        - tek
+        - common_key_appends
+
+    KeysPatchAppsReqBody:
+      type: object
+      properties:
+        tek:
+          description: The Tag Encryption Key encrypted with the new common key ([kT]kC_new)
+          type: string
+          format: base64
+        common_key_appends:
+          description: The common_key_appends is a list of common key / app id tuples, so it is known which common key container should be updated with the given common key
+          type: array
+          items:
+            type: object
+            properties:
+              app_id:
+                description: The ID of the "app" to be updated
+                type: string
+                format: uuid
+              common_key:
+                description: The common key in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+                type: string
+                format: base64
+            required:
+              - app_id
+              - common_key
+      required:
+        - tek
+        - common_key_appends
+
+    CommonKeyIdRespBody:
+      type: object
+      properties:
+        common_key_id:
+          description: The ID for the newly created common key
+          type: string
+          format: uuid
+
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          refreshUrl: /oauth/token
+          scopes:
+            sampleScope:r: Read on some scope
+    JWTAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+externalDocs:
+  description: "Documentation repository"
+  url: "https://github.com/gesundheitscloud/dev-docs"

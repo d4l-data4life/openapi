@@ -1,0 +1,171 @@
+openapi: "3.0.1"
+
+info:
+  x-audience: external
+  title: "data4life blob service"
+  description: "API implementing a blob storage."
+  version: "1.0.0"
+
+servers:
+  - url: "https://api-phdp-sandbox.hpsgc.de"
+    description: "Sandbox environment"
+  - url: "https://api.data4life.care"
+    description: "Production environment"
+
+tags:
+- name: "phdp-blob"
+  description: "Endpoints implementing blob storage"
+  externalDocs:
+    description: "Repository"
+    url: "https://github.com/gesundheitscloud/phdp-blob"
+
+paths:
+  /users/{user_id}/documents:
+    post:
+      tags:
+      - "phdp-blob"
+      summary: "Upload a document to blob storage"
+      parameters:
+      - in: "path"
+        name: "user_id"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      requestBody:
+        description: "The binary file contents"
+        content:
+          application/octet-stream:
+            schema:
+              type: "string"
+              format: "binary"
+        required: true
+      responses:
+        201:
+          description: "Created"
+          content:
+            application/json:
+              schema:
+                properties:
+                  document_id:
+                    description: "document_id of content created"
+                    type: "string"
+                    format: "uuid"
+        400:
+          $ref: '#/components/responses/ErrorBadRequest'
+        401:
+          $ref: '#/components/responses/ErrorUnauthorized'
+        500:
+          $ref: '#/components/responses/ErrorInternal'
+      security:
+      - OAuth2:
+        - "attachment:a"
+        - "attachment:w"
+
+  /users/{user_id}/documents/{document_id}:
+    get:
+      tags:
+      - "phdp-blob"
+      summary: "Get a document from blob storage"
+      parameters:
+      - in: "path"
+        name: "user_id"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "path"
+        name: "document_id"
+        description: "The ID of the document to retrieve"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      responses:
+        200:
+          description: "Success"
+          content:
+            application/octet-stream:
+              schema:
+                type: "string"
+                format: "binary"
+        400:
+          $ref: '#/components/responses/ErrorBadRequest'
+        401:
+          $ref: '#/components/responses/ErrorUnauthorized'
+        500:
+          $ref: '#/components/responses/ErrorInternal'
+      security:
+      - OAuth2:
+        - "attachment:r"
+
+    delete:
+      tags:
+      - "phdp-blob"
+      summary: "Delete the document"
+      parameters:
+      - in: "path"
+        name: "user_id"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      - in: "path"
+        name: "document_id"
+        description: "The id of the document to delete"
+        required: true
+        schema:
+          type: "string"
+          format: "uuid"
+      responses:
+        204:
+          description: "Success"
+        400:
+          $ref: '#/components/responses/ErrorBadRequest'
+        401:
+          $ref: '#/components/responses/ErrorUnauthorized'
+        404:
+          $ref: '#/components/responses/ErrorNotFound'
+        500:
+          $ref: '#/components/responses/ErrorInternal'
+      security:
+      - OAuth2:
+        - "attachment:w"
+
+components:
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          refreshUrl: /oauth/token
+          scopes:
+            attachment:r: Read `sub` attachments
+            attachment:w: Change `sub` attachments
+  responses:
+    ErrorBadRequest:
+      description: Bad Request
+      content:
+        text/plain:
+          schema:
+            type: string
+    ErrorUnauthorized:
+      description: Not authenticated
+      content:
+        text/plain:
+          schema:
+            type: string
+    ErrorNotFound:
+      description: Not found
+      content:
+        text/plain:
+          schema:
+            type: string
+    ErrorInternal:
+      description: Unexpected server error
+      content:
+        text/plain:
+          schema:
+            type: string

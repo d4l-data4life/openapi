@@ -1,0 +1,2887 @@
+openapi: 3.0.1
+
+info:
+  title: Data4life Vega
+  description: Data4life Vega API specification
+  x-audience: external
+  version: 2.7.0
+
+servers:
+  - url: https://api-phdp-sandbox.hpsgc.de
+    description: Sandbox environment
+  - url: https://api.data4life.care
+    description: Production environment
+
+tags:
+  - name: internal-service
+    description: Endpoints accessed by internal services
+  - name: third-party
+    description: Endpoints accessed by the third-party apps
+  - name: auth-app
+    description: Endpoints accessed by the auth app
+
+paths:
+  # Start of draft section
+  /authn/api/v4/mfa/device:
+    # Not necessary to implement, just complementary to the verify endpoint. Could be merged with /verify and managed by media type.
+    post:
+      description: "[CONCEPT] User posts type and value of device => custom media type?!"
+      requestBody:
+        content:
+          application/vnd.d4l.mfamobile+json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceReqBody"
+      responses:
+        "201":
+          description: Device id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceRespBody"
+
+  # Registration
+  /users/api/v1/users:
+    post:
+      tags:
+        - auth-app
+      summary: User registration endpoint (without keys)
+      operationId: postUserV1
+      security:
+        - SessionCookieAuth: []
+      requestBody:
+        content:
+          # The custom Content-Type enables us to add other means of authentication.
+          application/vnd.d4l.emailpassword.v2+json:
+            schema:
+              $ref: "#/components/schemas/UserRegistrationV2ReqBody"
+          application/vnd.d4l.appchallenge.v1+json:
+            schema:
+              description: TODO
+      responses:
+        "201": # Created
+          description: >
+            Successfully registered the user. Sets the authentication state of
+            SessionCookieAuth to authenticated.
+          headers:
+            Set-Cookie:
+              description: |
+                The `csrf_token` cookie. It contains a Cryptographically Secure Pseudo
+                Random Number (CSPRNG) that is meant for use by the server for comparison with the
+                X-CSRF-Token header. Hence http-only.
+              schema:
+                type: string
+            X-CSRF-Token:
+              description: A CSRF token to be send through headers on requests.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRegistrationV2RespBody"
+        "4XX": # Client errors
+          description: Client error. See the error catalog for more details.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/api/v1/migrate:
+    # User migration
+    post:
+      tags:
+        - auth-app
+      description: >
+        Migrates the user to v4. This results in loss of cryptographic material
+        that is not necessary any more.
+      operationId: postMigrate
+      security:
+        - SessionCookieAuth: [authenticated]
+        - CSRFCookie: []
+      requestBody:
+        description: The request body expects the main key as proof that the user is in ownership of the CUP and the main key.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CUPReqBody"
+      responses:
+        "202": # Accepted
+          description: Triggers the migration of a user. Which translates into the loss of the [dU]kF_P.
+        "400": # Bad Request
+          description: Malformed input
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403": # Forbidden
+          description: The [dU]k_M doesn't match.
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX": # Internal Server Error
+          description: Unexpected error
+          content:
+            application/x.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # End of draft
+
+  ##########################################################################
+  # Platform v1
+  ##########################################################################
+
+  /users/api/v1/login:
+    post:
+      tags:
+        - auth-app
+      summary: Exchange login credentials for the 2fa device IDs and user ID
+      operationId: postLoginV3
+      parameters:
+        - in: cookie
+          name: phdp-vega-2fa
+          description: the cookie used to remember that the user has logged in once with 2fa
+          schema:
+            type: string
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+        - in: query
+          name: tek
+          description: Flag telling the endpoint if the Tag Encryption Key should be returned. Defaults to false.
+          schema:
+            type: boolean
+        - in: query
+          name: pubkeys
+          description: Flag telling the endpoint if the PublicKeys of the grantees should be returned. Defaults to false.
+          schema:
+            type: boolean
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginV2ReqBody"
+      responses:
+        "200":
+          description: Successful operation
+          headers:
+            Set-Cookie:
+              description: |
+                The value of the header are two cookies.
+                The first cookie is `phdp-vega-auth`. It contains OAuth2 specific data and user
+                data to identify a user.
+                The second cookie is `csrf_token`. It contains a Cryptographically Secure Pseudo
+                Random Number (CSPRNG) that is meant for use by the server for comparison with the
+                X-CSRF-Token header. Hence http-only.
+              schema:
+                type: string
+            X-CSRF-Token:
+              description: A CSRF token to be send through headers on requests.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginV3RespBody"
+        "403":
+          description: |
+            Forbidden: "email not verified" (DetailedErrorRespBody)
+            or "the 2fa cookie is missing or invalid" (LoginV2RespBody)
+            or the user is not the owner of the device
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/DetailedErrorRespBody"
+                  - $ref: "#/components/schemas/LoginV2RespBody"
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: User is locked out because of too many failed login attempts or email sending is blocked because of too many attempts. Remaining lockout seconds are available in the `Retry-After` header
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "4XX":
+          description: Client error
+          headers:
+            Set-Cookie:
+              description: |
+                The value of the header are two cookies.
+                The first cookie is `phdp-vega-auth`. It contains OAuth2 specific data and user
+                data to identify a user.
+                The second cookie is `csrf_token`. It contains a Cryptographically Secure Pseudo
+                Random Number (CSPRNG) that is meant for use by the server for comparison with the
+                X-CSRF-Token header. Hence http-only.
+              schema:
+                type: string
+            X-CSRF-Token:
+              description: A CSRF token to be send through headers on requests.
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /users/api/v1/login-eid:
+    post:
+      tags:
+        - auth-app
+      summary: Login using a formerly registered eID device.
+        Please note, when successfully logged in, a further MFA verification is NOT needed!
+      operationId: postLoginEID
+      parameters:
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginEIDReqBody"
+      responses:
+        "200":
+          description: Successful operation
+          headers:
+            Set-Cookie:
+              description: |
+                The value of the header are two cookies.
+                The first cookie is `phdp-vega-auth`. It contains OAuth2 specific data and user
+                data to identify a user.
+                The second cookie is `csrf_token`. It contains a Cryptographically Secure Pseudo
+                Random Number (CSPRNG) that is meant for use by the server for comparison with the
+                X-CSRF-Token header. Hence http-only.
+              schema:
+                type: string
+            X-CSRF-Token:
+              description: A CSRF token to be send through headers on requests.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginV4RespBody"
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /users/api/v1/register:
+    post:
+      tags:
+        - auth-app
+      summary: User registration endpoint
+      operationId: postUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserRegistrationReqBody"
+      responses:
+        "201":
+          description: Successfully registered the user
+          headers:
+            Set-Cookie:
+              description: |
+                The value of the header is a cookie with the name `csrf_token`. It contains a
+                Cryptographically Secure Pseudo Random Number (CSPRNG) that is meant for use by
+                the server for comparison with the X-CSRF-Token header. Hence http-only.
+              schema:
+                type: string
+            X-CSRF-Token:
+              description: A CSRF token to be send through headers on requests.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRegistrationV2RespBody"
+        "409":
+          description: Duplicated email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedErrorRespBody"
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/api/v1/{user_id}/devices:
+    post:
+      tags:
+        - auth-app
+      summary: Create a new two-factor authentication device
+      description: >
+        Create a new two-factor authentication device and starts the verification process,
+        e.g. sends a verification code to the given mobile phone number. In the future we
+        want to offer other methods like TOTP
+      operationId: registerDevice
+      parameters:
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+        - in: header
+          name: X-CSRF-Token
+          description: Contains the csrf_token. Necessary to avoid receiving a 400.
+          schema:
+            type: string
+        - in: cookie
+          name: csrf_token
+          description: Enables the service to compare the csrf_token from the header.
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceReqBody"
+      responses:
+        "201":
+          description: 2FA device created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceRespBody"
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /users/api/v1/{user_id}/devices/{device_id}/code:
+    post:
+      tags:
+        - auth-app
+      summary: Sends sms for a given mobile number
+      description: >
+        This is the next api called after registration. The backend doesn't save the mobile
+        number at this point. It forwards it to sms sender service. The endpoint verifies that
+        session cookie contains user_id and user state - registered before sending an sms to
+        the given mobile number. The endpoint can be reused to resend sms.
+      operationId: sendSms
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: device_id
+          description: The ID of the device to send code to
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: X-CSRF-Token
+          description: Contains the csrf_token. Necessary to avoid receiving a 400.
+          schema:
+            type: string
+        - in: cookie
+          name: csrf_token
+          description: Enables the service to compare the csrf_token from the header.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceCodeReqBody"
+      responses:
+        "204":
+          description: SMS is sent to mobile successfully
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/api/v1/{user_id}/devices/{device_id}/verify:
+    post:
+      tags:
+        - auth-app
+      summary: Endpoint for 2FA after users complete their first step for login by entering correct password
+      description: >
+        Verifies that given user has already completed 1st step and checks against code sent
+        in request parameter. If the device was not verified before, it will be marked as
+        verified
+      operationId: verifyDevice
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: device_id
+          description: The ID of the device used
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: tek
+          description: Flag telling the endpoint if the Tag Encryption Key should be returned. Defaults to false.
+          schema:
+            type: boolean
+        - in: query
+          name: pubkeys
+          description: Flag telling the endpoint if the PublicKeys of the grantees should be returned. Defaults to false.
+          schema:
+            type: boolean
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+        - in: header
+          name: X-CSRF-Token
+          description: Contains the csrf_token. Necessary to avoid receiving a 400.
+          schema:
+            type: string
+        - in: cookie
+          name: csrf_token
+          description: Enables the service to compare the csrf_token from the header.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceVerifyReqBody"
+      responses:
+        "200":
+          description: 2FA code is verified successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginV3RespBody"
+          headers:
+            Set-Cookie:
+              description: Both phdp-vega-2fa and phdp-vega-auth cookies are set
+              schema:
+                type: string
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /authz/api/v1/approve:
+    post:
+      tags:
+        - auth-app
+      operationId: oauthApproveV2
+      summary: OAuth approve endpoint version 2 (for common key rotation)
+      description: >
+        Third step within the auth flow - returns a code that enables the client to retrieve
+        tokens. Version 2 allows to send a list of common keys
+      parameters:
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+        - in: cookie
+          name: csrf_token
+          description: Enables the service to compare the csrf_token from the header.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/ApproveV2CSRFReqBody"
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: |
+                The location of the redirect. The location query parameters include state, code and optionally
+                extended_session parameter in case of success or error details in case of failure as
+                specified in https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Wrong credentials
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Unexpected error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /authz/api/v1/upc/approve:
+    post:
+      tags:
+        - auth-app
+        - broker
+      operationId: oauthBrokerApprove
+      summary: OAuth approve endpoint for the broker onboarding flow
+      description: >
+        Third step within the auth flow - returns a code that enables the client to retrieve
+        tokens. This flavour of the /approve endpoint is part of the broker onboarding flow.
+      parameters:
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+        - in: cookie
+          name: csrf_token
+          description: Enables the service to compare the csrf_token from the header.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/UnderprivilegedApproveReqBody"
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: |
+                The location of the redirect. The location query parameters include state and code in case
+                of success or error details in case of failure as specified in https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Wrong credentials
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Unexpected error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /authz/api/v1/handshake/approve:
+    post:
+      tags:
+        - auth-app
+      operationId: handshakeApprove
+      summary: Endpoint to approve a handshake sharing.
+      description: >
+        Third step within the auth flow - returns a code that enables the client to retrieve
+        tokens. Version 2 allows to send a list of common keys
+      parameters:
+        - in: header
+          name: authorization
+          description: The access token as described in "#/components/securitySchemes/AccessToken" and referenced in "$this/security"
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/HandshakeApproveReqBody"
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: |
+                The location of the redirect. The location query parameters include state, code and optionally.
+                extended_session parameter in case of success or error details in case of failure as
+                specified in https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Wrong credentials
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Unexpected error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - AccessToken: ["usr:w", "perm:w"]
+
+  /userinfo:
+    get:
+      tags:
+        - third-party
+      summary: Get user information
+      description: Reads the jwt, returns information about the user, including crypto keys
+      operationId: getUserInfo
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoRespBody"
+        "400":
+          description: Malformed request or JWT lacks information or no permission found matching the user and app IDs or the user is not known or the client is not known
+        "401":
+          description: Not authorized
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:r
+            - perm:r
+
+  /user:
+    get:
+      tags:
+        - third-party
+      summary: Get user details
+      description: Reads the jwt, returns information about the user
+      operationId: getUserDetails
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDetailsRespBody"
+        "400":
+          description: JWT lacks information
+        "401":
+          description: Not authorized
+        "404":
+          description: User can't be found
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:r
+
+  /users/{user_id}/keys:
+    post:
+      tags:
+        - third-party
+      summary: Common Key Rotation
+      description: >
+        Rotates the current common key of the user with a newly generated common key.
+        Only allowed to be called by the user itself, (i.e. if the user_id matches the owner claim in the JWT).
+      operationId: rotateCommonKeys
+      parameters:
+        - in: path
+          name: user_id
+          description: The user that rotates his common keys
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: >
+          Expects a list of a user's common key encrypted with all the public keys associated
+          with him and a reference to the appropriate permission id, the newly generated common key,
+          a list of grantees who should be revoked and the newly encrypted TEK
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeyRotationReqBody"
+        required: true
+      responses:
+        "200":
+          description: Common key rotation success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommonKeyIdRespBody"
+        "400":
+          description: Malformed request or no permission found matching the user and app IDs
+        "401":
+          description: Not authenticated or JWT scopes are not sufficient
+        "404":
+          description: User with the given ID not found
+        "409":
+          description: A permission is missing from the request
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:w
+            - perm:w
+
+  /users/{user_id}/publickey:
+    get:
+      tags:
+        - third-party
+      summary: Retrieve the public key for a user. Only allowed to be called by the user itself, (i.e. if the user_id matches the owner claim in the JWT).
+      operationId: getPublicKey
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user that wants to know its public key
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Public key retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicKeyRespBody"
+        "400":
+          description: Bad request
+        "401":
+          description: Not authenticated or JWT owner ID doesn't match or JWT scopes are not sufficient
+        "404":
+          description: User not found
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:r
+
+  /users/{user_id}/commonkeys:
+    get:
+      tags:
+        - third-party
+      summary: Retrieve all the common keys for a user. Only allowed to be called by the user itself, (i.e. if the user_id matches the owner claim in the JWT).
+      operationId: getCommonKeys
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user that wants to know its common keys
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Common keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CommonKeyWithId"
+        "400":
+          description: Malformed request or no permission found matching the user and app IDs
+        "401":
+          description: Not authenticated or JWT owner ID doesn't match or JWT scopes are not sufficient
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - perm:r
+
+  /users/{user_id}/commonkeys/{common_key_id}:
+    get:
+      tags:
+        - third-party
+      summary: Retrieve a common key by ID. Only allowed to be called by the user itself, (i.e. if the user_id matches the owner claim in the JWT).
+      operationId: getCommonKey
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user that wants to know its common key
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: common_key_id
+          description: The id of the common key the user wants to get
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Common key retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommonKeyRespBody"
+        "400":
+          description: Malformed request or no permission found matching the user and app IDs
+        "401":
+          description: Not authenticated
+        "404":
+          description: The common key with the given ID was not found
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - perm:r
+
+  /users/{user_id}/change_password:
+    post:
+      deprecated: true
+      tags:
+        - third-party
+      summary: Change password
+      description: The frontend changes the password and re-encrypts the dependant crypto material.
+      operationId: changePassword
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose password will be changed
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeReqBody"
+      responses:
+        "204":
+          description: Password changed successfully
+        "400":
+          description: Bad request
+        "401":
+          description: Not authenticated or JWT owner ID doesn't match or JWT scopes are not sufficient
+        "403":
+          description: The provided password_hash doesn't match
+        "429":
+          description: User is locked out because of too many unsuccessful login attempts. Remaining lockout seconds are available in the `Retry-After` header
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:w
+
+  /users/{user_id}/password_reset:
+    post:
+      tags:
+        - auth-app
+      summary: Change the password using the recovery password
+      operationId: passwordReset
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user whose password will be changed
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryPasswordReqBody"
+      responses:
+        "204":
+          description: Successful operation
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - BasicAuth: []
+
+  /permissions:
+    get:
+      tags:
+        - third-party
+      summary: Query permissions by app_id
+      description: >
+        The endpoint returns the permissions, optionally filtered by app_id,
+        which belong to the user in the `sub` claim of the JWT. By default the
+        auth app (app with ID 00000000-0000-0000-0000-000000000000) is not
+        returned. It is not possible to query for
+        00000000-0000-0000-0000-000000000000 as it returns a 400 - Bad Request.
+      operationId: findPermissions
+      parameters:
+        - in: query
+          name: app_id
+          description: The optional app ID to filter for
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: include_upc
+          description: Flag indicating to include permissions for underprivileged clients in the response. Default value is false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+        "400":
+          description: Malformed request or no permission found matching the user ID
+        "401":
+          description: Not authenticated or JWT scopes are not sufficient
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - perm:r
+
+  /permissions/{permission_id}:
+    delete:
+      tags:
+        - third-party
+      summary: Delete a permission
+      operationId: deletePermission
+      parameters:
+        - in: path
+          name: permission_id
+          description: The ID of the permission to be deleted
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Authorization successfully revoked
+        "400":
+          description: Bad request
+        "401":
+          description: Not authenticated or JWT scopes are not sufficient
+        "404":
+          description: Permission with the given ID not found
+        "403":
+          description: Forbidden if trying to remove another user's permission
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - perm:w
+
+  /revoke:
+    post:
+      tags:
+        - third-party
+      summary: Deletes the refresh token and the associated permission
+      operationId: revokeRefreshToken
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/RevokeReqBody"
+      responses:
+        "200":
+          description: Successful operation
+        "400":
+          description: No form, no token, invalid hint, invalid client or no client credentials
+        "401":
+          description: Not authenticated
+        "403":
+          description: Invalid client credentials
+        "5XX":
+          description: Unexpected error
+      security:
+        - BasicAuth: []
+
+  /oauth/recovery_login/v2:
+    post:
+      tags:
+        - auth-app
+      summary: Exchange recovery login credentials for the CUP
+      operationId: recoveryLogin
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/RecoveryLoginV2ReqBody"
+      responses:
+        "200":
+          description: Successful operation
+          headers:
+            Set-Cookie:
+              description: the authorize cookie response (phdp-vega-auth)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryLoginV2RespBody"
+        "403":
+          description: Email not verified error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedErrorRespBody"
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "4XX":
+          description: Any other client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Any server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - SessionCookieAuth: []
+
+  /oauth/deny:
+    post:
+      tags:
+        - auth-app
+      operationId: denyAuthorizeRequest
+      summary: OAuth deny endpoint, equivalent of the approve endpoint but for rejecting the request.
+      description: >
+        This endpoint has to be called if during the auth flow the user decides to deny the authorize
+        request for the third party app. It redirects to the same callback_url as a successful
+        authorize flow and adds the `error` and `state` query parameters.
+      parameters:
+        - in: cookie
+          name: phdp-vega-auth
+          description: the authorize session cookie
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: |
+                The location of the redirect. It also contains `error` and `state` as query parameters in case of failure
+                as specified in https://tools.ietf.org/html/rfc6749#section-4.1.2.1
+              schema:
+                type: string
+        "400":
+          description: Bad request
+        "5XX":
+          description: Unexpected error
+      security:
+        - SessionCookieAuth: []
+
+  /oauth/authorize:
+    post:
+      deprecated: true
+      tags:
+        - third-party
+      operationId: oauthAuthorizePost
+      summary: OAuth authorize endpoint
+      description: First step within the auth flow. It redirects to the client's login page.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/AuthorizeReqBody"
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: >
+                The location of the redirect. It includes all the query parameters from the request as query parameters on the redirect URL.
+                It includes the following query parameters with more information about the client requesting the authorization: `client_type`, `company_name`,
+                and `app_name`.
+              schema:
+                type: string
+        "400":
+          description: Bad request
+        "401":
+          description: Invalid client parameters. e.g redirect urls don't match.
+        "403":
+          description: Forbidden
+        "5XX":
+          description: Unexpected error
+    get:
+      tags:
+        - third-party
+      operationId: oauthAuthorizeGet
+      summary: OAuth authorize endpoint
+      description: First step within the auth flow. It redirects to the client's login page.
+      parameters:
+        - in: query
+          name: client_id
+          description: An unique string identifying the client
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: code_challenge
+          description: The code challenge as specified by RFC7636 (see https://tools.ietf.org/html/rfc7636)
+          schema:
+            type: string
+        - in: query
+          name: response_type
+          description: The response type as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749). Only 'code' is supported.
+          schema:
+            type: string
+            enum:
+              - code
+        - in: query
+          name: code_challenge_method
+          description: The code challenge method as specified by RFC7636 (see https://tools.ietf.org/html/rfc7636).
+          schema:
+            type: string
+            enum:
+              - plain
+              - S256
+        - in: query
+          name: scope
+          description: Scopes requested by the client.
+          schema:
+            type: string
+        - in: query
+          name: state
+          description: OAuth2 anti-CSRF nonce (see https://tools.ietf.org/html/rfc6749)
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect response
+          headers:
+            Location:
+              description: >
+                The location of the redirect. It includes all the query parameters from the request as query parameters on the redirect URL.
+                It includes a query parameter `client-type`, reflecting the type of the client corresponding to the sent `client_id`.
+              schema:
+                type: string
+        "400":
+          description: Bad request
+        "403":
+          description: Forbidden
+        "5XX":
+          description: Unexpected error
+
+  /oauth/token:
+    post:
+      tags:
+        - third-party
+      operationId: oauthToken
+      summary: OAuth token endpoint
+      description: >
+        Last step within the auth flow. It can also be called to get a new token using a valid refresh_token.
+        If auth is successful, persist the new permission.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenReqBody"
+      responses:
+        "200":
+          description: Successful authorization code exchange
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenRespBody"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2TokenErrorResponse"
+            text/plain:
+              schema:
+                description: Non OAuth compliant legacy errors
+                type: string
+        "403":
+          description: Forbidden
+        "404":
+          description: User is not existing
+        "5XX":
+          description: Unexpected error
+      security:
+        - BasicAuth: []
+
+  /oauth/upc/token:
+    post:
+      tags:
+        - broker
+      operationId: oauthTokenUPC
+      summary: OAuth token endpoint
+      description: >
+        Last step within the auth flow, to be used in the broker onboarding flow. If auth is successful, persist the new broker common key.
+        It can also be called to get a new token using a valid refresh_token.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenReqBody"
+      responses:
+        "200":
+          description: Successful authorization code exchange
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenRespBody"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuth2TokenErrorResponse"
+            text/plain:
+              schema:
+                description: Non OAuth compliant legacy errors
+                type: string
+        "403":
+          description: Forbidden
+        "409":
+          description: Conflict - returned if the sent updates are not covering all the active permissions for the user
+        "5XX":
+          description: Unexpected error
+      security:
+        - BasicAuth: []
+
+  /users/validate:
+    post:
+      tags:
+        - auth-app
+      summary: Endpoint for validating a user after registration
+      operationId: validateUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserValidateReqBody"
+        required: true
+      responses:
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedErrorRespBody"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{user_id}/email:
+    put:
+      tags:
+        - third-party
+      summary: Change user email. Only allowed to be called by the user itself, (i.e. if the user_id matches the owner claim in the JWT).
+      operationId: changeEmail
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user to change the email for
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeEmailReqBody"
+      responses:
+        "204":
+          description: Successful operation
+        "400":
+          description: Bad request
+        "401":
+          description: Not authenticated or JWT owner doesn't match user_id in the path or the JWT scopes are not sufficient
+        "403":
+          description: The email is not verified
+        "404":
+          description: User not found
+        "429":
+          description: User is locked out because of too many failed login attempts. Remaining lockout seconds are available in the `Retry-After` header
+        "5XX":
+          description: Unexpected error
+      security:
+        - OAuth2:
+            - user:w
+
+  ##########################################################################
+  # Devices API
+  ##########################################################################
+
+  /devices/api/v1/eid/saml-entrance:
+    get:
+      tags:
+        - devices
+      operationId: saml-eclient-authn-entrance
+      description: |
+        Start online authentication via SAML (redirect binding)
+        This endpoint's URL is what is sent as the _TC token URL_ to the AusweisApp which
+        then emits a GET request to this endpoint.
+      parameters:
+        - name: challenge
+          description: |
+            SHA-256 hash of `verifier` value. The `verifier` must be randomly generated and remembered
+            by the client (that is, either the Auth app or the Account page).
+            It is later used to collect the restricted ID (see `collect-restricted-id`).
+            In order to prove that the client who initiated the card readout process (that is, who invoked this
+            very endpoint) is the same who collects the restricted ID (`collect-restricted-id`),
+            we use this [PKCE](https://tools.ietf.org/html/rfc7636)-like verifier/challenge mechanism.
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: usecase
+          description: |
+            In endpoint `saml-eclient-authn-receive` we need to redirect back to the app where the process started.
+            This enum is used to remember that app:
+              - `login` will redirect back to the Auth app
+              - `cardadd` will redirect back to the Citizen app's user account page
+          required: true
+          in: query
+          schema:
+            type: string
+            enum:
+              - login
+              - cardadd
+      responses:
+        302:
+          description: |
+            The success case will return a SAML URL in the `location` header.
+          headers:
+            location:
+              description: |
+                It will contain the following query parameters:
+                  - `SAMLRequest`: Base64-encoded zip-deflated SAML request XML document
+                  - `RelayState`:  Set to `<usecase>|<challenge>`
+                  - `Signature`:   Signature over `SAMLRequest` and `RelayState`
+                  - `SigAlg`:      Meta information on the signature
+              schema:
+                type: string
+                format: uri
+              example: https://test.governikus-eid.de/gov_autent/async?SAMLRequest=nVbZkqJYFHyfrzCoiHkxlE0QmKrqQFFxA2Rx4aWD5SrIKvci4NcPVdrd1TNRPR3zejgn85zMRHz%2BUidx5woKGGbpC0b2CawDUi%2Fzw%2FT0glnmtMdhX16foZPEVC6IJQpSHVxKAFGnHUyhcH%2FygpVFKmQODKGQOgmAAvIEQ1yvBKpPCHmRoczLYqwjQggK1FKNsxSWCSgMUFxDD1j66gULEMqhgONx5jlxkEEkcIMBjV9JHIQ%2B%2FkaEAy8OQYp6BfBAeAVYR2o3CVPnDfIHAGqL%2FVPWXpWGUQl77XjfB3hb%2BeqUqJ3HHdikHtaZSy%2FYV3ZAuWDAgh7Bk15vMKS5nuuxRM8lOY%2FwCcAf3ZZoDmEJ5ilETopeMIqgyB5B9ijCJBmBIQWa7hMUa2Md7XHrKEzvGv5KGPfeBAXZNLWeDvywPQy9g1xDHxRKK%2BWnuiDPzCKQYp3tN%2FdarbGHV8L7vsVHk369ivPNGez1Ex8efM%2FvTlAPgu%2FRmNStsG8hgq%2FPrd7CJPWKJkfA%2F5iZ702PvdrG%2B3mt6y4M%2B26ZvjsF5hLeXlK3SfwBJDnIecy9Pfg%2BWFVVv6L7WXHCKYIgcWKAt9FsO56wjtnkDwFbhs8bJzFI2lj8g7I9Zg1QkPkdMT5lRYiC5BNS%2FsFIkk8OgBTD9k5eguGvzz4UlqCZp8fssbkPP4EgcOIdxYfh6elft7cgP8vx%2B7t9FKSATo%2F8yrxt9q7tOMwDULwJ%2B1Nh68QleF1ah4S7bY3yoAUHYFUNuK72NiDI4ZxlR3lkR9p01wyZ%2FflcgWaR8etzPnM2GaMw1uicDkFRV5p17Tq6fvjziaT%2F%2BmMTLmc7fDWazlMaNiuoUuye5mWVlStJLPKzP9XrPWVwO2p4cM1GYYnrWTtvirJQ9sl5c1kO9tUlCipp6yt3REKyB3B7jHdnfc1wM9HdIBjzu8Iku7RKDXdD3xjJosetgvHF5m6pE9auWFw269ll4uDyftY1iaOaao5qJXdEybD8aizyUZcc1P5yMp51r4qt%2Bg5DlbbFiuQZrFBoHQkfTHUnUHxXW%2BNO0pQRUynHPRnepkk3PXT52sDviOwhkG4KH05WqmFHw2MBEV7r0Xi9r%2BRqUa5upWvRp5eXZ%2FyDJ3cLfirdbbo3fX%2B73oOB%2F4jZ7xh7vkxZVK8XizSbxY084ZRhUqwXIRwtabm7HN%2By21Ikpwoi1sboqnO3nKiDaTZEx3gwiVJGT9QNq1VDOCOjh2j8ZXzRElWj4WHpdXMl6OptkBkpMhfjbcmrzNI25hN9YCVo2TR1bLiNpk1CrgS6FFSJ7%2B%2BOc7%2FroKY83xGDKS%2BLsi37lcc3V28804z9CI95Hy9DkTJzyRgVlcavc8XYA5CZW7R0XZkvMzKspS1VG0bdcKkTT7gqfNhAyzUxwWeRrMnmmp%2B60zHTGH6GX4rRtQr2VjfdgHkbYW2sF1kj79EJXOvDSLkhf3LLG45iZ5uTCZXdkrkjGo1tZ4oxIChVlUR7Dm1GN1kW2mRDb2L%2BmO6TU4YrIrGOFe94jPj6JIlDc0iljBJbYTagF1w85OGOMo07YhGNLlnpBHI55gNift5IKqKSUm382gZyxAY2YRxhMCkZmDVkkVaLbcOgy8i1VI2h04zvkvkyDNr3A8A7Ihht0fx2S6hNaMzOc0vN1zvToGUCH1uXlXgUd%2Bsp3q30%2FxW%2BRyL%2F%2B%2Be%2BjejjH8THz8S32scvxOvf&RelayState=login%7C2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae&SigAlg=http%3A%2F%2Fwww.w3.org%2F2001%2F04%2Fxmldsig-more%23rsa-sha256&Signature=r6tuY8fL16D60G84xWaTU3ypWUH3N9JxZAb%2F1%2FC2Uh0rNDrFO01%2Bu0eiztToDdXekeDRIG%2Bf2ym9z48s7eG7J%2Fotqy391me07NBlLxHi3XJdc5%2FK%2BcXEiZy1BMjS8szaVl0DLQ2CYz0O%2Fk3Cm9GAYKSkw8YJDzdhE3lZH9ImctL%2Bg%2BhPxzCrc0%2BlSATSE5i0B6lzvpdP52sQUHdCKS6R9RWYSgfZH3c0KWeHaxw4iAynPLBMPsByQLOMlWNYvhkwYZDTtBkMS3CtuRRn3HZ9DH7K2d%2B7r6odRoduresOByUMH6%2FNjoYv%2BTocMUgdYuXNRwVysQ%2FUV4GXOHzi6YcoqA%3D%3D
+        400:
+          description: Bad Request in case of malformed query parameters
+        500:
+          description: Error message in case of unknown error
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /devices/api/v1/eid/saml-receive:
+    get:
+      tags:
+        - devices
+      operationId: saml-eclient-authn-receive
+      description: |
+        SAML response reception endpoint. If the online authentication has ended (either successful or with an error),
+        the AusweisApp will emit a GET request to this endpoint containing the SAML response (and other parameters).
+        In the success case we will extract the restricted ID from the SAML response and store it temporarily for
+        later collection via endpoint `collect-restricted-id`.
+      parameters:
+        - name: SAMLResponse
+          description: Base64-encoded zip-deflated SAML response XML document
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: RelayState
+          description: Set to `<usecase>|<challenge>` (repeated from the request above)
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: Signature
+          description: Signature over `SAMLResponse` and `RelayState`
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: SigAlg
+          description: Meta information on the signature
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        302:
+          description: |
+            We redirect back to the app where the online authentication started from.
+            The URL of this app is determined by the `usecase` parameter that was set in the
+            `saml-eclient-authn-entrance` request.
+            We **do not** return any card data! The status of the card readout is communicated by the
+            redirect query parameter `edi-readout`.
+            To retrieve the restricted ID, the client must call `collect-restricted-id` with the
+            `verifier` value that corresponds to the `challenge` set in `saml-eclient-authn-entrance`.
+          headers:
+            location:
+              description: |
+                The `usecase` parameter from request `saml-eclient-authn-entrance` is used to determine
+                the URL to redirect to. The `eid-readout` query parameter can have the following values:
+                  - `ok`:        All went well, the restricted ID can be collected (for some time)
+                  - `not-found`: The `challenge` in the `RelayState` was unknown, that is, no ongoing authentication request could be found
+                  - `conflict`:  The SAML response does not belong to the SAML request
+                  - `error`:     Other unknown error occurred
+              schema:
+                type: string
+                format: uri
+              example: https://auth.smart4health.eu?eid-resout=ok
+        400:
+          description: Bad Request in case of malformed query parameters
+        409:
+          description: Conflict in case signature validation failed
+        500:
+          description: Error message in case of unknown error
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /devices/api/v1/users/{user_id}/devices/eid:
+    post:
+      tags:
+        - devices
+      summary: Create a new eID device for the given user
+      description: >
+        Create a new eID device for the given user.
+        This function receives the verifier and retrieves the restricted ID which has been generated by the /eid/saml-receive endpoint for the given verifier.
+        The restricted ID is then stored as part of the eID device and used for subsequent logins with eID.
+      operationId: registerEIDDevice
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceReqBody"
+      responses:
+        "201":
+          description: 2FA device created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterDeviceRespBody"
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - OAuth2:
+            - dev:w
+
+  /devices/api/v1/users/{user_id}/devices:
+    get:
+      tags:
+        - devices
+      summary: Get all configured devices for the given user
+      description: >
+        Get all configured devices (any device type) for the given user .
+      operationId: getAllDevices
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  $ref: "#/components/schemas/Device"
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - OAuth2:
+            - dev:r
+
+  /devices/api/v1/users/{user_id}/devices/{device_id}:
+    delete:
+      tags:
+        - devices
+      summary: Delete the device with the given ID
+      description: >
+        Delete the device with the given device_id for the user with the given user_id. 
+      operationId: deleteDevice
+      parameters:
+        - in: path
+          name: user_id
+          description: The ID of the user
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: device_id
+          description: The ID of the device
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Successfully deleted
+        "4XX":
+          description: Client error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Server error
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/vnd.d4l.error.v2+json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - OAuth2:
+            - dev:w
+
+  ##########################################################################
+  # Component Schema
+  ##########################################################################
+
+components:
+  schemas:
+    Permission:
+      type: object
+      properties:
+        id:
+          description: The unique ID of the permission
+          type: string
+          format: uuid
+        owner:
+          description: The ID of the user owning the permission
+          type: string
+          format: uuid
+        grantee:
+          description: The ID of the user to whom the permission was granted
+          type: string
+          format: uuid
+        client_id:
+          description: The ID of the client to whom the permission was granted
+          type: string
+          format: uuid
+        app_id:
+          description: The ID of the app to which the permission was granted
+          type: string
+          format: uuid
+        grantee_public_key:
+          description: The public key of the grantee in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        common_key:
+          description: The latest common key encrypted with the CAP public key of the grantee in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        scope:
+          description: The granted scopes
+          type: string
+        activated:
+          description: The timestamp when the permission was activated
+          type: string
+        revoked:
+          description: The timestamp when the permission was revoked. Can be empty if the permission was not revoked yet
+          type: string
+        company_name:
+          description: The name of the partner owning the application to which the permission was granted
+          type: string
+        company_url:
+          description: The URL of the partner owning the application to which the permission was granted
+          type: string
+        app_name:
+          description: The name of the application to which the permission was granted
+          type: string
+        app_logo_url:
+          description: The logo of the application to which the permission was granted
+          type: string
+      required:
+        - id
+        - owner
+        - grantee
+        - client_id
+        - app_id
+        - grantee_public_key
+        - common_key
+        - scope
+        - activated
+        - revoked
+        - company_name
+        - company_url
+        - app_name
+        - app_logo_url
+
+    UserRegistrationReqBody:
+      type: object
+      properties:
+        email:
+          description: The user email address
+          type: string
+        password_hash:
+          description: The sha512 hash of the user's cleartext password
+          type: string
+          format: base64
+        password_key_salt:
+          description: None zero salt for password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        cup:
+          description: The user's private key encrypted with the salted password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        public_key:
+          description: The public key corresponding to the encrypted CUP
+          type: string
+          format: base64
+        tag_encryption_key:
+          description: The user's tag encryption key encrypted with the CUP public key of the user
+          type: string
+          format: base64
+        common_key:
+          description: The user's common key encrypted with the CUP public key of the user
+          type: string
+          format: base64
+        recovery_password_hash:
+          description: The sha512 hash of the user's cleartext recovery password
+          type: string
+          format: base64
+        recovery_cup:
+          description: The user's recovery private key encrypted with the salted password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        recovery_password_key_salt:
+          description: Non zero salt for password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        use_case:
+          description: Citizen use case (mostly used to track s4h citizen use cases), defaults to none. Optional.
+          type: string
+          enum:
+            - None
+            - EU_EHR_Data_Ingestion
+            - Back_Pain_And_MSD_Treatment
+            - Back_Pain_And_MSD_Prevention_At_Companies
+            - Back_Pain_And_MSD_Prevention_At_Industry
+            - Back_Pain_And_MSD_Prevention_At_Caregiver_Workplace
+            - Back_Pain_And_MSD_Prevention_In_Hospital_Workplace
+            - Back_Pain_And_MSD_Prevention_And_Regional_Health
+        consent_given:
+          description: Timestamp when user gave consent for the health data processing
+          type: string
+          format: date-time
+        consents:
+          description: Other consents accepted by the user during the registration
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsentItem"
+        source:
+          description: The landing page source (e.g. labres, corona) from where user initiated the authorize request (optional).
+          type: string
+      required:
+        - email
+        - password_hash
+        - password_key_salt
+        - cup
+        - public_key
+        - tag_encryption_key
+        - common_key
+        - recovery_password_hash
+        - recovery_cup
+        - recovery_password_key_salt
+
+    UserRegistrationV2ReqBody:
+      type: object
+      properties:
+        email:
+          description: The user email address.
+          type: string
+        password:
+          description: The password of a user. It will be hashed with bcrypt and encrypted on persistence.
+          type: string
+          format: base64
+        use_case:
+          description: Citizen use case (mostly used to track s4h citizen use cases), defaults to none. Optional.
+          type: string
+          enum:
+            - None
+            - EU_EHR_Data_Ingestion
+            - Back_Pain_And_MSD_Treatment
+            - Back_Pain_And_MSD_Prevention_At_Companies
+            - Back_Pain_And_MSD_Prevention_At_Industry
+            - Back_Pain_And_MSD_Prevention_At_Caregiver_Workplace
+            - Back_Pain_And_MSD_Prevention_In_Hospital_Workplace
+            - Back_Pain_And_MSD_Prevention_And_Regional_Health
+        consent_given:
+          description: Timestamp when user gave consent
+          type: string
+          format: date-time
+        consents:
+          description: Other consents accepted by the user during the registration
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsentItem"
+        source:
+          description: The landing page source (e.g. labres, corona) from where user initiated the authorize request (optional).
+          type: string
+      required:
+        - email
+        - password
+        - consent_given
+
+    UserInfoRespBody:
+      type: object
+      properties:
+        sub:
+          description: Subject ID in JWT, refers to User ID
+          type: string
+          format: uuid
+        common_key:
+          description: most recent common key encrypted with the CAP public key of the caller
+          type: string
+          format: base64
+        common_key_id:
+          description: id of the common key
+          type: string
+          format: uuid
+        tag_encryption_key:
+          description: tag encryption key symmetrically encrypted with the common key (using algorithm AES_GCM)
+          type: string
+          format: base64
+        app_id:
+          description: App ID in JWT, refers to Client ID
+          type: string
+          format: uuid
+
+    UserDetailsRespBody:
+      type: object
+      properties:
+        email:
+          description: the email of the user
+          type: string
+        created:
+          description: the time when the user account was created
+          type: string
+          format: date-time
+        verified:
+          description: flag indicating if the user has verified the email
+          type: boolean
+
+    KeyRotationReqBody:
+      type: object
+      properties:
+        common_key:
+          description: The common key is the currently used common key
+          type: string
+          format: base64
+        shared_common_keys:
+          description: The shared_common_keys is a list of common key / permission id tuples, so it is known which row should be updated with the given common key
+          type: array
+          items:
+            type: object
+            properties:
+              permission_id:
+                description: The ID of the permission to be updated
+                type: string
+                format: uuid
+              common_key:
+                description: The common key in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+                type: string
+                format: base64
+        tek:
+          description: As the Tag Encryption Key is encrypted with the common key, this one needs to be updated too
+          type: string
+          format: base64
+        revoked_grantees:
+          description: This is a list of ids of permissions, whose grantees should be revoked. As the operation is expensive, it should handle bulk revocations
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    CommonKeyIdRespBody:
+      type: object
+      properties:
+        common_key_id:
+          description: The ID for the newly created common key
+          type: string
+          format: uuid
+
+    CommonKeyRespBody:
+      type: object
+      properties:
+        common_key:
+          description: The current common key in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats ) of the given ID as base64
+          type: string
+          format: base64
+
+    PublicKeyRespBody:
+      type: object
+      properties:
+        public_key:
+          description: The public key in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats ) of the user as Base64
+          type: string
+          format: base64
+
+    PasswordChangeReqBody:
+      type: object
+      properties:
+        password_hash:
+          description: The sha512 hash of the current password
+          type: string
+          format: base64
+        new_password_hash:
+          description: The sha512 hash of the new password
+          type: string
+          format: base64
+        new_password_key_salt:
+          description: Salt for password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        new_cup:
+          description: The private key encrypted against the new password_key
+          type: string
+          format: base64
+
+    RecoveryPasswordReqBody:
+      type: object
+      properties:
+        recovery_password_hash:
+          description: The sha512 hash of the current recovery password
+          type: string
+          format: base64
+        new_password_hash:
+          description: The sha512 hash of the new password
+          type: string
+          format: base64
+        new_password_key_salt:
+          description: Salt for password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        new_cup:
+          description: The private key encrypted against the new password_key
+          type: string
+          format: base64
+
+    LoginV2ReqBody:
+      type: object
+      properties:
+        email:
+          description: The email of the user
+          type: string
+        password_hash:
+          description: The sha512 hash of the user's password
+          type: string
+
+    LoginV2RespBody:
+      type: object
+      properties:
+        id:
+          description: The ID of the user
+          type: string
+          format: uuid
+        device_ids:
+          description: >
+            List of device ids registered for user. In our case, it will be one on which
+            default sms would be sent on login. If 2fa is not enabled, response is empty array
+            but still successful
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+        - id
+        - device_ids
+
+    PublicKeyTuple:
+      type: object
+      properties:
+        id:
+          description: ID associated to the PublicKey. Must be used for sending back stuff encrypted with the associated public key.
+          type: string
+          format: uuid
+        pubkey:
+          description: Public key of an app.
+          type: string
+          format: base64
+
+    LoginV3RespBody:
+      type: object
+      properties:
+        id:
+          description: The ID of the user
+          type: string
+          format: uuid
+        cup:
+          description: The user's private key encrypted with the salted password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        password_key_salt:
+          description: Salt for password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        common_key:
+          description: The user's active common key
+          type: string
+          format: base64
+        common_key_id:
+          description: The ID of the active common key
+          type: string
+          format: uuid
+        common_keys:
+          description: An array of (common key ID - common key) values
+          type: array
+          items:
+            $ref: "#/components/schemas/CommonKeyWithId"
+        tag_encryption_key:
+          description: The Tag Encryption Key of a user encrypted with its common key. Crypto notation:(kT)kC.
+          type: string
+          format: base64
+        apps_public_keys:
+          description: "The public keys of the grantees of a user. Crypto Notation: [EU, EA_1, ..., EA_n]."
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicKeyTuple"
+        verified:
+          description: Boolean having the value 'true' if the user has finished the registration.
+          type: string
+          enum:
+            - true
+            - false
+        access_token:
+          description: The access token issued after a successful login
+          type: string
+        token_type:
+          description: The type of the access token, currently only 'bearer' is supported
+          type: string
+          enum:
+            - bearer
+      required:
+        - id
+        - verified
+
+    LoginEIDReqBody:
+      type: object
+      properties:
+        verifier:
+          description: The randomly generated verifier which has been signed by /eid/saml-entrance and /eid/saml-receive
+          type: string
+
+    LoginV4RespBody:
+      type: object
+      properties:
+        id:
+          description: The ID of the user
+          type: string
+          format: uuid
+        access_token:
+          description: The access token issued after a successful login
+          type: string
+        token_type:
+          description: The type of the access token, currently only 'bearer' is supported
+          type: string
+          enum:
+            - bearer
+      required:
+        - id
+        - access_token
+        - token_type
+
+    DetailedErrorRespBody:
+      type: object
+      properties:
+        error_code:
+          description: A code representing the error
+          type: string
+          x-extensible-enum:
+            - INVALID_VERIFICATION_LINK
+            - EMAIL_NOT_VERIFIED
+            - DUPLICATE_EMAIL
+        message:
+          description: A string providing more details about the error
+          type: string
+        text:
+          description: A string providing more details about the error
+          type: string
+
+    RecoveryLoginV2ReqBody:
+      type: object
+      properties:
+        email:
+          description: The email of the user trying to recover its password
+          type: string
+        recovery_password_hash:
+          description: The sha512 hash of the user's recovery password
+          type: string
+
+    RecoveryLoginV2RespBody:
+      type: object
+      properties:
+        id:
+          description: The user unique identifier
+          type: string
+          format: uuid
+        recovery_cup:
+          description: The user's recovery private key encrypted with the salted recovery-password-derived-key (PBKDF2)
+          type: string
+          format: base64
+        recovery_password_key_salt:
+          description: Salt for recovery-password-derived-key (PBKDF2)
+          type: string
+          format: base64
+
+    ApproveV2CSRFReqBody:
+      type: object
+      properties:
+        public_key:
+          description: The public key of the client in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        common_keys:
+          description: The encrypted common keys belonging to the client
+          type: array
+          items:
+            description: A single encrypted common key given as a comma-separated pair of ID and encrypted common key
+            type: string
+        extended_session:
+          description: Optional Boolean parameter. If added, the value is propagated to third party redirect in query parameters.
+          type: boolean
+        csrf_token:
+          description: The CSRF token that was given in the X-CSRF-Token header at login / registration.
+          type: string
+      required:
+        - csrf_token
+        - public_key
+        - common_keys
+
+    UnderprivilegedApproveReqBody:
+      type: object
+      properties:
+        public_key:
+          description: The public key of the upc app (EA_H) in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        tag_encryption_key:
+          description: The tag encryption key encrypted with the new common key ([kT]kC_H)
+          type: string
+          format: base64
+        upc_common_key:
+          description: The new common key encrypted with the under-privileged app public key ([kC_H]EA_H).
+          type: string
+          format: base64
+        upc_common_key_updates:
+          description: >
+            The new common key encrypted with every existing app public key ([kC_H]EA_x for every app x).
+            Sent in an array of (ID - common key) tuples.
+          type: array
+          items:
+            type: string
+            description: >
+              A tuple containing the ID (uuid) received with the app public key and the new common key (kC_H) encrypted
+              with the corresponding app public key ([kC_H]EA_x) separated by a comma.
+      required:
+        - public_key
+        - tag_encryption_key
+        - upc_common_key
+        - upc_common_key_updates
+
+    UnderprivilegedApproveCSRFReqBody:
+      type: object
+      properties:
+        public_key:
+          description: The public key of the upc app (EA_H) in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        tag_encryption_key:
+          description: The tag encryption key encrypted with the new common key ([kT]kC_H)
+          type: string
+          format: base64
+        upc_common_key:
+          description: The new common key encrypted with the under-privileged app public key ([kC_H]EA_H).
+          type: string
+          format: base64
+        upc_common_key_updates:
+          description: >
+            The new common key encrypted with every existing app public key ([kC_H]EA_x for every app x).
+            Sent in an array of (ID - common key) tuples.
+          type: array
+          items:
+            type: string
+            description: >
+              A tuple containing the ID (uuid) received with the app public key and the new common key (kC_H) encrypted
+              with the corresponding app public key ([kC_H]EA_x) separated by a comma.
+        csrf_token:
+          description: The CSRF token that was given in the X-CSRF-Token header at login / registration.
+          type: string
+      required:
+        - csrf_token
+        - public_key
+        - tag_encryption_key
+        - upc_common_key
+        - upc_common_key_updates
+
+    HandshakeApproveReqBody:
+      type: object
+      properties:
+        public_key:
+          description: The public key of the client in hc_key format (see https://github.com/gesundheitscloud/dev-docs/blob/master/docs/design-documents/crypto/crypto-api.md#key-exchange-formats )
+          type: string
+          format: base64
+        common_keys:
+          description: >
+            The encrypted common keys belonging to the client. Sadly we send ALL common keys, even the unnecessary ones and share them with the grantee.
+          type: array
+          items:
+            description: A single encrypted common key given as a comma-separated pair of ID and encrypted common key
+            type: string
+        response_type:
+          description: The expected OAuth response type.
+          type: string
+          enum:
+            - code
+        client_id:
+          description: An unique string identifying the client.
+          type: string
+          format: uuid
+        redirect_uri:
+          description: Client redirect URI.
+          type: string
+        scope:
+          description: Scopes requested by the client.
+          type: string
+        state:
+          description: OAuth2 anti-CSRF nonce.
+          type: string
+      required:
+        - public_key
+        - common_keys
+        - response_type
+        - client_id
+        - scope
+
+    AuthorizeReqBody:
+      type: object
+      properties:
+        client_id:
+          description: An unique string identifying the client
+          type: string
+          format: uuid
+        code_challenge:
+          description: The code challenge as specified by RFC7636 (see https://tools.ietf.org/html/rfc7636)
+          type: string
+        response_type:
+          description: The response type as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749). Only 'code' is supported.
+          type: string
+          enum:
+            - code
+        code_challenge_method:
+          description: The code challenge method as specified by RFC7636 (see https://tools.ietf.org/html/rfc7636).
+          type: string
+          enum:
+            - plain
+            - S256
+        scope:
+          description: Scopes requested by the client.
+          type: string
+        state:
+          description: "OAuth2 anti-CSRF nonce (see https://tools.ietf.org/html/rfc6749)"
+          type: string
+        redirect_uri:
+          description: "OAuth2 redirect URI for the client (Optional parameter, see https://tools.ietf.org/html/rfc6749)"
+          type: string
+
+    TokenReqBody:
+      type: object
+      properties:
+        client_id:
+          description: An unique ID for the client
+          type: string
+          format: uuid
+        client_secret:
+          description: The client secret as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: string
+        grant_type:
+          description: >
+            The grant type as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749).
+            Must be 'authorization_code' for getting a new token or 'refresh_token' for refreshing an
+            existing token using a refresh token
+          type: string
+          enum:
+            - authorization_code
+            - refresh_token
+        code:
+          description: >
+            The authorization code as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749).
+            Only needed when grant_type is 'authorization_code'.
+          type: string
+        code_verifier:
+          description: >
+            The code verifier as specified by RFC7636 (see https://tools.ietf.org/html/rfc7636).
+            Only needed when grant_type is 'authorization_code'.
+          type: string
+        refresh_token:
+          description: >
+            The refresh token used to get a new authorization code. Only needed if the endpoint is called
+            for refreshing the token
+          type: string
+        refresh_token_lifetime:
+          description: >
+            The desired refresh token inactivity lifetime in minutes (optional). This value is respected only if it's less (or equal) than
+            the inactivity lifetime configured for the client. In case this value is not provided or it is greater than the client
+            inactivity lifetime, the configured client inactivity lifetime will be used instead and this value will be ignored.
+          type: integer
+
+    TokenRespBody:
+      type: object
+      properties:
+        access_token:
+          description: The access token issued by the authorization server as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: string
+        refresh_token:
+          description: >
+            The refresh token which can be used to obtain new
+            access tokens as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: string
+        expires_in:
+          description: The lifetime in seconds of the access token as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: integer
+        scope:
+          description: The scope of the access token as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: string
+        token_type:
+          description: The type of the access token as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749). Only 'bearer' is supported
+          type: string
+          enum:
+            - bearer
+
+    UserValidateReqBody:
+      type: object
+      properties:
+        email:
+          description: the user's email to be validated
+          type: string
+        validation_code:
+          description: the validation code sent to the user's email
+          type: string
+
+    RegisterDeviceReqBody:
+      type: object
+      properties:
+        device_type:
+          description: The type of the device to be created
+          $ref: "#/components/schemas/DeviceType"
+        device_value:
+          description: >
+            [sms] The phone number complying regex ^(00|\\+)[1-9]{1}[0-9]{3,14}$. e.g. +491234567890
+            [eid] The randomly generated verifier which has been signed by /eid/saml-entrance and /eid/saml-receive
+          type: string
+
+    RegisterDeviceRespBody:
+      type: object
+      properties:
+        device_id:
+          description: The ID of the device that has been created
+          type: string
+          format: uuid
+        device_url:
+          description: The URL of the device that has been created
+          type: string
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+
+    Device:
+      type: object
+      properties:
+        id:
+          description: The unique ID of the device
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/DeviceType"
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+        createdAt:
+          description: "Timestamp at which the device was created (RFC3339 format in UTC)"
+          type: string
+          format: date-time
+
+    DeviceType:
+      type: string
+      description: The type of the authentication device
+      x-extensible-enum:
+        - sms
+        - eid
+
+    DeviceStatus:
+      type: string
+      description: The activation status of the device
+      x-extensible-enum:
+        - pending
+        - approved
+
+    DeviceCodeReqBody:
+      type: object
+      properties:
+        device_value:
+          description: '[sms] The phone number complying regex ^(00|\\+)[1-9]{1}[0-9]{3,14}$. e.g. +491234567890'
+          type: string
+        device_type:
+          description: The type of the 2FA device to be created
+          type: string
+          x-extensible-enum:
+            - sms
+
+    DeviceVerifyReqBody:
+      type: object
+      properties:
+        verification_code:
+          description: The device verification code received
+          type: string
+        remember_browser:
+          description: When set to true, the device that is getting verified will be remembered so that 2FA is not required next time.
+          type: boolean
+
+    CommonKeyWithId:
+      type: object
+      properties:
+        common_key_id:
+          description: The id of the common key
+          type: string
+          format: uuid
+        common_key:
+          description: The encrypted common key belonging to the user
+          type: string
+          format: base64
+
+    UserRegistrationRespBody:
+      type: object
+      properties:
+        user_id:
+          description: The ID of the newly created user
+          type: string
+          format: uuid
+        warnings:
+          description: The warnings if some non critical things failed during registration. e.g. optional consent creation
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ErrorItem"
+
+    UserRegistrationV2RespBody:
+      type: object
+      properties:
+        user_id:
+          description: The ID of the newly created user
+          type: string
+          format: uuid
+        warnings:
+          description: The warnings if some non critical things failed during registration. e.g. optional consent creation
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ErrorItem"
+        access_token:
+          description: The access token issued after a successful registration of the user
+          type: string
+        token_type:
+          description: The type of the access token, currently only 'bearer' is supported
+          type: string
+          enum:
+            - bearer
+      required:
+        - user_id
+
+    ChangeEmailReqBody:
+      properties:
+        new_email:
+          description: The new email
+          type: string
+        password_hash:
+          description: The sha512 hash of the user's password
+          type: string
+
+    RevokeReqBody:
+      type: object
+      properties:
+        token:
+          description: The token that the client wants to get revoked as specified by RFC7009 (see https://tools.ietf.org/html/rfc7009)
+          type: string
+        token_type_hint:
+          description: A hint about the type of token submitted for revocation as specified by RFC7009 (see https://tools.ietf.org/html/rfc7009). Only refresh_token is supported
+          type: string
+          enum:
+            - refresh_token
+        client_secret:
+          description: The client secret as specified by OAuth2 (see https://tools.ietf.org/html/rfc6749)
+          type: string
+        client_id:
+          description: An unique ID for the client
+          type: string
+          format: uuid
+
+    ConsentItem:
+      type: object
+      properties:
+        key:
+          description: The consent document key. It corresponds to a key in the consent management service.
+          type: string
+        version:
+          description: The consent document version. It corresponds to a version in the consent management service.
+          type: number
+        seen_at:
+          description: The time when the consent was seen.
+          type: string
+          format: date-time
+        action:
+          description: The decision of the user regarding the consent (typically accept or reject).
+          $ref: "#/components/schemas/ConsentAction"
+      required:
+        - key
+        - version
+        - seen_at
+        - action
+
+    ConsentAction:
+      type: string
+      x-extensible-enum:
+        - ACCEPT
+        - REJECT
+        - NO_ACTION
+
+    ErrorResponse:
+      type: "object"
+      properties:
+        errors:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ErrorItem"
+
+    ErrorItem:
+      type: "object"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        trace_id:
+          type: "string"
+        message:
+          type: "string"
+        details:
+          oneOf:
+            - $ref: "#/components/schemas/LoginV2RespBody" # for error code LOGIN_SECOND_FACTOR_MISSING
+            - $ref: "#/components/schemas/ParameterDetails" # for error code PARAMETER_INVALID or PARAMETER_MISSING
+      required:
+        - code
+
+    ErrorCode:
+      type: string
+      x-extensible-enum:
+        - CREDENTIALS_INVALID
+        - SESSION_NOT_FOUND
+        - SESSION_INVALID
+        - USER_EMAIL_NOT_VERIFIED
+        - USER_EMAIL_ALREADY_VERIFIED
+        - INTERNAL_ERROR
+        - LOGIN_FIRST_FACTOR_MISSING
+        - LOGIN_SECOND_FACTOR_MISSING
+        - CLIENT_FORBIDDEN
+        - PARAMETER_MISSING
+        - PARAMETER_INVALID
+        - USER_NOT_OWNER
+        - BODY_INVALID
+        - VERIFICATION_CODE_MAX_ATTEMPTS_REACHED
+        - VERIFICATION_CODE_MISMATCH
+        - USER_NOT_FOUND
+        - USER_LOCKED_OUT
+        - EMAIL_SENDING_BLOCKED
+        - DUPLICATE_EMAIL
+        - DEVICE_EXISTS
+        - DEVICE_NOT_FOUND
+        - MOBILE_NUMBER_INVALID
+        - TOO_MANY_REQUESTS
+        - OPTIONAL_CONSENT_NOT_STORED
+
+    ParameterDetails:
+      type: object
+      properties:
+        parameter_name:
+          description: the name of the parameter that is invalid or missing
+          type: string
+      required:
+        - parameter_name
+
+    RateLimitDetails:
+      type: object
+      properties:
+        retry_after:
+          description: number of seconds that the client needs to wait before retrying
+          type: number
+      required:
+        - retry_after
+
+    OAuth2TokenErrorResponse:
+      description: Error response as specified by the oauth2 standard in https://tools.ietf.org/html/rfc6749#section-5.2
+      type: object
+      properties:
+        error:
+          $ref: "#/components/schemas/OAuth2TokenError"
+        error_description:
+          description: Human-readable ASCII text providing additional information
+          type: string
+        error_uri:
+          description: A URI identifying a human-readable web page with information about the error
+          type: string
+          format: uri
+      required:
+        - error
+
+    OAuth2TokenError:
+      description: Error specified by the oauth2 standard in https://tools.ietf.org/html/rfc6749#section-5.2
+      type: string
+      enum:
+        - invalid_request
+        - invalid_client
+        - invalid_grant
+        - unauthorized_client
+        - unsupported_grant_type
+        - invalid_scope
+
+    CommonKeysByID:
+      type: object
+      properties:
+        id:
+          description: The key of the map. Identifies a common key.
+          type: string
+          format: uuid
+        common_key:
+          description: The value of the map. Common Key used to encrypt data.
+          type: string
+          format: base64
+
+    CUPReqBody:
+      type: object
+      properties:
+        cup:
+          description: >
+            [dU]k_M - The user's private key encrypted with the salted main-key-passphrase
+            (PBKDF2). It is expected to be added as proof of knowledge of the CUP and to avoid
+            any weird lockout / ransomware like effects.
+          type: string
+          format: base64
+
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          refreshUrl: /oauth/token
+          scopes:
+            exc: Token Exchange
+            perm:r: Read `uid` permissions
+            perm:w: Change `uid` permissions
+            rec:r: Read `sub` records
+            rec:w: Change `sub` records
+            rec:a: Append `sub` records
+            attachment:r: Read `sub` attachments
+            attachment:w: Change `sub` attachments
+            attachment:a: Append `sub` attachments
+            dev:r: Read device data
+            dev:w: Create and modify devices
+            user:r: Read `uid` user data
+            user:w: Change `uid` user data
+            user:q: Query users by email and read private keys and IDs
+            terradb: RW permissions on the Terra persistence layer
+            tag:xxx: if this scope is present, records and attachments MUST be filtered matching this tag.
+            ext:xxx: This is a custom scope that can be specified by a service dynamically.
+    SessionCookieAuth:
+      description: >
+        The auth session cookie is set at the beginning of the OAuth2 flow (/authorize). It is
+        used as an authentication mechanism between the AuthApp (tag: AuthApp) and Vega. It
+        changes its internal state to "authenticated", once a user authenticated.
+      type: apiKey
+      in: cookie
+      name: phdp-vega-auth
+    2FACookieAuth:
+      description: >
+        The 2FA cookie is set, if the user provided a valid device.
+      type: apiKey
+      in: cookie
+      name: phdp-vega-2fa
+    CSRFCookie:
+      description: >
+        A cookie that contains the value that is expected to be received on POST requests.
+        Contains a cryptographically secure random number (CSRN) protected by an HMAC with a 256byte
+        key. The key is masked with a one time pad (OTP) that is appended in cleartext to protect
+        against BREACH attack.
+      type: apiKey
+      in: cookie
+      name: phdp-vega-csrf
+    BasicAuth:
+      description: >
+        basic auth in meant in a broad sense, i.e. any endpoint required to send an id and a secret.
+        The properties and the mechanism to send this information (ie. body vs header) are endpoint-specific.
+      type: http
+      scheme: basic
+    AccessToken:
+      description: >
+        The access token is a JWT token that authenticates a user on our apps.
+      type: apiKey
+      in: header
+      name: authorization
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Secret
+
+externalDocs:
+  description: Documentation repository
+  url: https://github.com/gesundheitscloud/dev-docs

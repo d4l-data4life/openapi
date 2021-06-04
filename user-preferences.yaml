@@ -1,0 +1,190 @@
+openapi: "3.0.2"
+info:
+  title: User-preferences RESTful(ish)Api
+  version: "1.0"
+  description: The API for user-preferences management. Almost all requests require either a bearer token of a service secret for authorization.
+servers:
+  - url: https://api-phdp-sandbox.hpsgc.de/user-preferences/api/v1
+    description: Sandbox environment
+  - url: https://api.data4life.care/user-preferences/api/v1
+    description: Production environment
+
+tags:
+  - name: "ServiceSettings"
+    description: "Used to manipulate key-value settings for various users"
+  - name: "UserSettings"
+    description: "Used to manipulate key-value settings for a single user"
+
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      description: PHDP Access Token
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Setting:
+      description: Represents a single key-value pair
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+      example:
+        survey.notification.language: en
+
+    Settings:
+      description: Represents a collection of 'Setting' objects (key-value pairs) with unique keys
+      type: array
+      items:
+        $ref: "#/components/schemas/Setting"
+      example:
+        survey.notification.language: en
+        survey.notification.type: email
+
+paths:
+  ### USER Settings - JWT
+
+  /settings:
+    get:
+      tags:
+        - "UserSettings"
+      security:
+        - BearerToken: []
+      summary: Returns all settings for a single user
+      responses:
+        "200":
+          description: OK, if the JWT is valid returns an object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "500":
+          description: INTERNAL SERVER ERROR
+    delete:
+      tags:
+        - "UserSettings"
+      security:
+        - BearerToken: []
+      summary: Deletes all settings for a single user
+      responses:
+        "204":
+          description: No content, if the JWT is valid it deletes all settings for account
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "500":
+          description: INTERNAL SERVER ERROR
+
+  /settings/{key}:
+    get:
+      tags:
+        - "UserSettings"
+      security:
+        - BearerToken: []
+      summary: Returns a single setting for given accountID
+      responses:
+        "200":
+          description: OK, if the JWT is valid returns an object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Setting"
+        "400":
+          description: BAD REQUEST, if there is no key specified
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "404":
+          description: NOT FOUND, if the setting key does not exist
+        "500":
+          description: INTERNAL SERVER ERROR
+    put:
+      tags:
+        - "UserSettings"
+      security:
+        - BearerToken: []
+      summary: Sets a single setting for given accountID - value is overwritten on conflict
+      requestBody:
+        description: Stores a new value for the key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "204":
+          description: No content, if the JWT is valid it deletes all settings for account
+        "400":
+          description: BAD REQUEST, if there is no key specified or the value is not set
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "404":
+          description: NOT FOUND, if the setting key does not exist
+        "500":
+          description: INTERNAL SERVER ERROR
+    delete:
+      tags:
+        - "UserSettings"
+      security:
+        - BearerToken: []
+      summary: Deletes a single setting for given accountID
+      responses:
+        "204":
+          description: No content, if the JWT is valid it deletes all settings for account
+        "400":
+          description: BAD REQUEST, if there is no key specified
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "404":
+          description: NOT FOUND, if the setting key does not exist
+        "500":
+          description: INTERNAL SERVER ERROR
+
+  ### Feedback - JWT
+
+  /feedback:
+    post:
+      tags:
+        - "Feedback"
+      security:
+        - BearerToken: []
+      summary: Send feedback to Customer Care
+      requestBody:
+        description: The feedback send by the user
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+                  description: The topic to which the user wants to give feedback
+                feedback:
+                  type: string
+                  description: The feedback written by the user
+                allowContact:
+                  type: boolean
+                  description: Flag indicating if the user allows Customer Support to contact him/her
+                file:
+                  type: array
+                  description: The files that should be added to the feedback
+                  items:
+                    type: string
+                    format: binary
+              required:
+                - "feedback"
+                - "topic"
+                - "allowContact"
+      responses:
+        "204":
+          description: NO CONTENT, if the feedback was sent
+        "401":
+          description: UNAUTHORIZED, if the JWT is not valid
+        "404":
+          description: BAD REQUEST, if the request is malformed
+        "500":
+          description: INTERNAL SERVER ERROR
